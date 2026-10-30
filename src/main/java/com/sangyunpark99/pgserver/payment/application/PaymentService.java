@@ -67,10 +67,10 @@ public class PaymentService {
 
         if (result.approved()) {
             payment.approve(new CardInfo(result.issuerCode(), result.maskedNumber(), result.approveNo()), LocalDateTime.now());
-            tx.complete();
+            tx.complete(LocalDateTime.now());
         } else {
             payment.abort(result.failureCode(), result.failureMessage());
-            tx.fail();
+            tx.fail(LocalDateTime.now());
         }
         return payment;
     }
@@ -94,11 +94,11 @@ public class PaymentService {
         CardCancelResult result = cardCompanyClient.cancel(tx.getTransactionKey(), payment.getCard().getApproveNo(), cancelAmount);
 
         if (!result.canceled()) {
-            tx.fail();
+            tx.fail(LocalDateTime.now());
             throw new CardCancelFailedException(result.failureCode(), result.failureMessage());
         }
         payment.cancel(cancelAmount);
-        tx.complete();
+        tx.complete(LocalDateTime.now());
         return payment;
     }
 

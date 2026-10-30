@@ -14,7 +14,7 @@ public record CancelResponse(
 ) {
     public static CancelResponse from(PaymentTransaction tx) {
         return new CancelResponse(
-                tx.getTransactionKey(), tx.getAmount(), tx.getReason(), tx.getStatus(), tx.getTransactedAt()
+                tx.getTransactionKey(), tx.getAmount(), tx.getReason(), tx.getStatus(), tx.getCompletedAt()
         );
     }
 }

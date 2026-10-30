@@ -14,12 +14,13 @@ public record TransactionResponse(
         long amount,
         TransactionStatus status,
         String reason,
-        LocalDateTime transactedAt
+        LocalDateTime transactedAt,
+        LocalDateTime completedAt
 ) {
     public static TransactionResponse from(PaymentTransaction tx) {
         return new TransactionResponse(
                 tx.getTransactionKey(), tx.getPaymentKey(), tx.getMId(), tx.getType(),
-                tx.getAmount(), tx.getStatus(), tx.getReason(), tx.getTransactedAt()
+                tx.getAmount(), tx.getStatus(), tx.getReason(), tx.getTransactedAt(), tx.getCompletedAt()
         );
     }
 }
