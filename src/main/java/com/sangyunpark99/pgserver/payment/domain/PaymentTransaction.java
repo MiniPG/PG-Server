@@ -11,7 +11,10 @@ import java.time.LocalDateTime;
 @Table(
         name = "payment_transaction",
         uniqueConstraints = @UniqueConstraint(name = "uk_tx_transaction_key", columnNames = "transaction_key"),
-        indexes = @Index(name = "idx_tx_payment_key", columnList = "payment_key")
+        indexes = {
+                @Index(name = "idx_tx_payment_key", columnList = "payment_key"),
+                @Index(name = "idx_tx_mid_transacted_at", columnList = "m_id, transacted_at")
+        }
 )
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
@@ -25,6 +28,9 @@ public class PaymentTransaction {
 
     @Column(name = "payment_key", nullable = false, length = 200)
     private String paymentKey;
+
+    @Column(name = "m_id", nullable = false, length = 14)
+    private String mId;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "type", nullable = false, length = 10)
@@ -43,7 +49,7 @@ public class PaymentTransaction {
     @Column(name = "transacted_at", nullable = false)
     private LocalDateTime transactedAt;
 
-    public static PaymentTransaction request(String transactionKey, String paymentKey, TransactionType type,
+    public static PaymentTransaction request(String transactionKey, String paymentKey, String mId, TransactionType type,
                                              long amount, String reason, LocalDateTime transactedAt) {
         if (amount <= 0) {
             throw new IllegalArgumentException("거래 금액은 0보다 커야 합니다.");
@@ -51,6 +57,7 @@ public class PaymentTransaction {
         PaymentTransaction tx = new PaymentTransaction();
         tx.transactionKey = transactionKey;
         tx.paymentKey = paymentKey;
+        tx.mId = mId;
         tx.type = type;
         tx.amount = amount;
         tx.reason = reason;

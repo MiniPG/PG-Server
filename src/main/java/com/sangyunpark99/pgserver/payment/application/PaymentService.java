@@ -57,7 +57,7 @@ public class PaymentService {
         verify(payment, command);
 
         PaymentTransaction tx = PaymentTransaction.request(
-                generateTransactionKey(), payment.getPaymentKey(), TransactionType.APPROVE,
+                generateTransactionKey(), payment.getPaymentKey(), payment.getMId(), TransactionType.APPROVE,
                 payment.getTotalAmount(), null, LocalDateTime.now()
         );
         transactionRepository.save(tx);
@@ -85,7 +85,7 @@ public class PaymentService {
         payment.validateCancel(cancelAmount);
 
         PaymentTransaction tx = PaymentTransaction.request(
-                generateTransactionKey(), payment.getPaymentKey(), TransactionType.CANCEL,
+                generateTransactionKey(), payment.getPaymentKey(), payment.getMId(), TransactionType.CANCEL,
                 cancelAmount, command.cancelReason(), LocalDateTime.now()
         );
         transactionRepository.save(tx);
