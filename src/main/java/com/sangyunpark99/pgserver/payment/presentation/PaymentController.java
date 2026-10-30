@@ -1,5 +1,6 @@
 package com.sangyunpark99.pgserver.payment.presentation;
 
+import com.sangyunpark99.pgserver.payment.application.ConfirmPaymentCommand;
 import com.sangyunpark99.pgserver.payment.application.CreatePaymentCommand;
 import com.sangyunpark99.pgserver.payment.application.PaymentService;
 import com.sangyunpark99.pgserver.payment.domain.Payment;
@@ -21,6 +22,15 @@ public class PaymentController {
                                   @RequestBody CreatePaymentRequest request) {
         Payment payment = paymentService.create(
                 new CreatePaymentCommand(mId, request.orderId(), request.orderName(), request.amount())
+        );
+        return PaymentResponse.from(payment);
+    }
+
+    @PostMapping("/confirm")
+    public PaymentResponse confirm(@RequestHeader(MERCHANT_HEADER) String mId,
+                                   @RequestBody ConfirmPaymentRequest request) {
+        Payment payment = paymentService.confirm(
+                new ConfirmPaymentCommand(mId, request.paymentKey(), request.orderId(), request.amount())
         );
         return PaymentResponse.from(payment);
     }
