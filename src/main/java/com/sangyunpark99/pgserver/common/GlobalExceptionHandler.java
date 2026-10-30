@@ -1,5 +1,6 @@
 package com.sangyunpark99.pgserver.common;
 
+import com.sangyunpark99.pgserver.card.CardCompanyUnavailableException;
 import com.sangyunpark99.pgserver.payment.application.CardCancelFailedException;
 import com.sangyunpark99.pgserver.payment.application.PaymentNotFoundException;
 import com.sangyunpark99.pgserver.payment.domain.NotPartialCancelableException;
@@ -29,6 +30,12 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ErrorResponse> cancelFailed(CardCancelFailedException e) {
         return ResponseEntity.status(HttpStatus.CONFLICT)
                 .body(new ErrorResponse("CANCEL_FAILED", "[" + e.getFailureCode() + "] " + e.getMessage()));
+    }
+
+    @ExceptionHandler(CardCompanyUnavailableException.class)
+    public ResponseEntity<ErrorResponse> cardUnavailable(CardCompanyUnavailableException e) {
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .body(new ErrorResponse("CARD_COMPANY_UNAVAILABLE", "카드사 응답을 받지 못했습니다. 결제 상태를 조회해 확인해 주세요."));
     }
 
     @ExceptionHandler(IllegalArgumentException.class)

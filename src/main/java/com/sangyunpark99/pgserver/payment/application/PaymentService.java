@@ -3,6 +3,7 @@ package com.sangyunpark99.pgserver.payment.application;
 import com.sangyunpark99.pgserver.card.CardApprovalResult;
 import com.sangyunpark99.pgserver.card.CardCancelResult;
 import com.sangyunpark99.pgserver.card.CardCompanyClient;
+import com.sangyunpark99.pgserver.card.CardCompanyUnavailableException;
 import com.sangyunpark99.pgserver.payment.domain.CardInfo;
 import com.sangyunpark99.pgserver.payment.domain.Payment;
 import com.sangyunpark99.pgserver.payment.domain.PaymentStatus;
@@ -50,7 +51,7 @@ public class PaymentService {
                 .orElseThrow(PaymentNotFoundException::new);
     }
 
-    @Transactional
+    @Transactional(noRollbackFor = CardCompanyUnavailableException.class)
     public Payment confirm(ConfirmPaymentCommand command) {
         Payment payment = findOwned(command.mId(), command.paymentKey());
 
@@ -62,7 +63,7 @@ public class PaymentService {
         );
         transactionRepository.save(tx);
 
-        CardApprovalResult result = cardCompanyClient.approve(payment.getPaymentKey(), payment.getTotalAmount());
+        CardApprovalResult result = cardCompanyClient.approve(tx.getTransactionKey(), payment.getPaymentKey(), payment.getTotalAmount());
 
         if (result.approved()) {
             payment.approve(new CardInfo(result.issuerCode(), result.maskedNumber(), result.approveNo()), LocalDateTime.now());
@@ -74,7 +75,7 @@ public class PaymentService {
         return payment;
     }
 
-    @Transactional(noRollbackFor = CardCancelFailedException.class)
+    @Transactional(noRollbackFor = {CardCancelFailedException.class, CardCompanyUnavailableException.class})
     public Payment cancel(CancelPaymentCommand command) {
         Payment payment = findOwned(command.mId(), command.paymentKey());
 
@@ -90,7 +91,7 @@ public class PaymentService {
         );
         transactionRepository.save(tx);
 
-        CardCancelResult result = cardCompanyClient.cancel(payment.getPaymentKey(), cancelAmount);
+        CardCancelResult result = cardCompanyClient.cancel(tx.getTransactionKey(), payment.getCard().getApproveNo(), cancelAmount);
 
         if (!result.canceled()) {
             tx.fail();
