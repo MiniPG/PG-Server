@@ -13,7 +13,8 @@ import java.time.LocalDateTime;
         uniqueConstraints = @UniqueConstraint(name = "uk_tx_transaction_key", columnNames = "transaction_key"),
         indexes = {
                 @Index(name = "idx_tx_payment_key", columnList = "payment_key"),
-                @Index(name = "idx_tx_mid_transacted_at", columnList = "m_id, transacted_at")
+                @Index(name = "idx_tx_mid_transacted_at", columnList = "m_id, transacted_at"),
+                @Index(name = "idx_tx_status_completed_at", columnList = "status, completed_at")
         }
 )
 @Getter
@@ -49,6 +50,9 @@ public class PaymentTransaction {
     @Column(name = "transacted_at", nullable = false)
     private LocalDateTime transactedAt;
 
+    @Column(name = "completed_at")
+    private LocalDateTime completedAt;
+
     public static PaymentTransaction request(String transactionKey, String paymentKey, String mId, TransactionType type,
                                              long amount, String reason, LocalDateTime transactedAt) {
         if (amount <= 0) {
@@ -66,11 +70,13 @@ public class PaymentTransaction {
         return tx;
     }
 
-    public void complete() {
+    public void complete(LocalDateTime completedAt) {
         this.status = TransactionStatus.DONE;
+        this.completedAt = completedAt;
     }
 
-    public void fail() {
+    public void fail(LocalDateTime completedAt) {
         this.status = TransactionStatus.FAILED;
+        this.completedAt = completedAt;
     }
 }

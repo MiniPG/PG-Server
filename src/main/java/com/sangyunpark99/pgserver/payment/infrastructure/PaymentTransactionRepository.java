@@ -30,4 +30,20 @@ public interface PaymentTransactionRepository extends JpaRepository<PaymentTrans
                                       @Param("endDate") LocalDateTime endDate,
                                       @Param("afterId") long afterId,
                                       Pageable pageable);
+
+    @Query("""
+            select new com.sangyunpark99.pgserver.payment.infrastructure.MerchantTransactionSummary(
+                t.mId,
+                sum(case when t.type = com.sangyunpark99.pgserver.payment.domain.TransactionType.APPROVE then t.amount else 0 end),
+                sum(case when t.type = com.sangyunpark99.pgserver.payment.domain.TransactionType.CANCEL then t.amount else 0 end),
+                sum(case when t.type = com.sangyunpark99.pgserver.payment.domain.TransactionType.APPROVE then 1L else 0L end),
+                sum(case when t.type = com.sangyunpark99.pgserver.payment.domain.TransactionType.CANCEL then 1L else 0L end))
+            from PaymentTransaction t
+            where t.status = com.sangyunpark99.pgserver.payment.domain.TransactionStatus.DONE
+              and t.completedAt >= :start
+              and t.completedAt < :end
+            group by t.mId
+            """)
+    List<MerchantTransactionSummary> summarizeCompletedByMerchant(@Param("start") LocalDateTime start,
+                                                                  @Param("end") LocalDateTime end);
 }

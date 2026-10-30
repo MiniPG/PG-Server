@@ -1,7 +1,25 @@
-
+spring:
+  application:
+    name: PG-Server
+  datasource:
+    url: jdbc:mysql://localhost:3306/pg?serverTimezone=Asia/Seoul
+    username: root
+    password: root
+  jpa:
+    hibernate:
+      ddl-auto: update
+    properties:
+      hibernate:
+        format_sql: true
+    show-sql: false
 
 card:
   client: http
   base-url: http://localhost:8081
   connect-timeout: 1s
   read-timeout: 3s
+
+pg:
+  settlement:
+    fee-rate: 0.03
+    cron: "0 0 2 * * *"
