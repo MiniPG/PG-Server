@@ -1,6 +1,8 @@
 package com.sangyunpark99.pgserver.common;
 
 import com.sangyunpark99.pgserver.card.CardCompanyUnavailableException;
+import com.sangyunpark99.pgserver.merchant.application.MerchantAuthenticationException;
+import com.sangyunpark99.pgserver.merchant.application.MerchantSuspendedException;
 import com.sangyunpark99.pgserver.payment.application.CardCancelFailedException;
 import com.sangyunpark99.pgserver.payment.application.PaymentNotFoundException;
 import com.sangyunpark99.pgserver.payment.domain.NotPartialCancelableException;
@@ -13,6 +15,18 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 @RestControllerAdvice
 public class GlobalExceptionHandler {
     public record ErrorResponse(String code, String message) {}
+
+    @ExceptionHandler(MerchantAuthenticationException.class)
+    public ResponseEntity<ErrorResponse> unauthorized(MerchantAuthenticationException e) {
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                .body(new ErrorResponse("UNAUTHORIZED_KEY", e.getMessage()));
+    }
+
+    @ExceptionHandler(MerchantSuspendedException.class)
+    public ResponseEntity<ErrorResponse> suspended(MerchantSuspendedException e) {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                .body(new ErrorResponse("FORBIDDEN_MERCHANT", e.getMessage()));
+    }
 
     @ExceptionHandler(PaymentNotFoundException.class)
     public ResponseEntity<ErrorResponse> notFound(PaymentNotFoundException e) {

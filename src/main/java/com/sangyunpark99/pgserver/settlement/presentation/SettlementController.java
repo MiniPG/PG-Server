@@ -1,6 +1,7 @@
 package com.sangyunpark99.pgserver.settlement.presentation;
 
 import com.sangyunpark99.pgserver.settlement.application.SettlementService;
+import com.sangyunpark99.pgserver.merchant.presentation.AuthenticatedMerchant;
 import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.*;
@@ -8,7 +9,6 @@ import org.springframework.web.bind.annotation.*;
 import java.time.LocalDate;
 import java.util.List;
 
-import static com.sangyunpark99.pgserver.payment.presentation.PaymentController.MERCHANT_HEADER;
 
 @RestController
 @RequestMapping("/v1/settlements")
@@ -18,7 +18,7 @@ public class SettlementController {
 
     @GetMapping
     public List<SettlementResponse> find(
-            @RequestHeader(MERCHANT_HEADER) String mId,
+            @AuthenticatedMerchant String mId,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate) {
         return settlementService.find(mId, startDate, endDate).stream()
