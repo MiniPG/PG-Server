@@ -23,3 +23,21 @@ pg:
   settlement:
     fee-rate: 0.03
     cron: "0 0 2 * * *"
+
+server:
+  tomcat:
+    mbeanregistry:
+      enabled: true
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus,threaddump
+  metrics:
+    tags:
+      application: ${spring.application.name}
+    distribution:
+      percentiles-histogram:
+        "[http.server.requests]": true
+        "[http.client.requests]": true
