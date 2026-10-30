@@ -36,10 +36,20 @@ public class PaymentService {
         return paymentRepository.save(payment);
     }
 
+    @Transactional(readOnly = true)
+    public Payment getByPaymentKey(String mId, String paymentKey) {
+        return findOwned(mId, paymentKey);
+    }
+
+    @Transactional(readOnly = true)
+    public Payment getByOrderId(String mId, String orderId) {
+        return paymentRepository.findByMerchantAndOrderId(mId, orderId)
+                .orElseThrow(PaymentNotFoundException::new);
+    }
+
     @Transactional
     public Payment confirm(ConfirmPaymentCommand command) {
-        Payment payment = paymentRepository.findByPaymentKey(command.paymentKey())
-                .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 결제입니다. paymentKey=" + command.paymentKey()));
+        Payment payment = findOwned(command.mId(), command.paymentKey());
 
         verify(payment, command);
 
@@ -61,10 +71,13 @@ public class PaymentService {
         return payment;
     }
 
+    private Payment findOwned(String mId, String paymentKey) {
+        return paymentRepository.findByPaymentKey(paymentKey)
+                .filter(payment -> payment.getMId().equals(mId))
+                .orElseThrow(PaymentNotFoundException::new);
+    }
+
     private void verify(Payment payment, ConfirmPaymentCommand command) {
-        if (!payment.getMId().equals(command.mId())) {
-            throw new IllegalArgumentException("다른 가맹점의 결제입니다.");
-        }
         if (!payment.getOrderId().equals(command.orderId())) {
             throw new IllegalArgumentException("주문 번호가 일치하지 않습니다.");
         }
