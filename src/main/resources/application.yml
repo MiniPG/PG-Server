@@ -22,4 +22,4 @@ card:
 pg:
   settlement:
     fee-rate: 0.03
-    cron: "0 0 4 * * *"
+    cron: "0 0 2 * * *"
