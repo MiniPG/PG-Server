@@ -14,7 +14,8 @@ import java.time.LocalDateTime;
         uniqueConstraints = {
                 @UniqueConstraint(name = "uk_payment_payment_key", columnNames = "payment_key"),
                 @UniqueConstraint(name = "uk_payment_mid_order_id", columnNames = {"m_id", "order_id"})
-        }
+        },
+        indexes = @Index(name = "idx_payment_status_requested_at", columnList = "status, requested_at")
 )
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
@@ -94,6 +95,10 @@ public class Payment {
         changeStatus(PaymentStatus.ABORTED);
         this.failureCode = failureCode;
         this.failureMessage = failureMessage;
+    }
+
+    public void expire() {
+        changeStatus(PaymentStatus.EXPIRED);
     }
 
     public void validateCancel(long cancelAmount) {

@@ -160,4 +160,23 @@ class PaymentTest {
         assertThatThrownBy(() -> payment.cancel(1_000))
                 .isInstanceOf(IllegalStateException.class);
     }
+
+    @Test
+    @DisplayName("IN_PROGRESS 결제는 만료시킬 수 있다")
+    void expire() {
+        Payment payment = newPayment();
+
+        payment.expire();
+
+        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.EXPIRED);
+    }
+
+    @Test
+    @DisplayName("승인된 결제는 만료시킬 수 없다")
+    void expire_afterApprove() {
+        Payment payment = approvedPayment(true);
+
+        assertThatThrownBy(payment::expire)
+                .isInstanceOf(IllegalStateException.class);
+    }
 }
