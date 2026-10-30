@@ -7,8 +7,8 @@ spring:
     password: root
   jpa:
     hibernate:
-      ddl-auto: update          # 처음에는 편하게. 테이블을 직접 관리할 때 바꾼다
-    open-in-view: false         # 요청이 끝날 때까지 DB 커넥션을 붙잡지 않도록
+      ddl-auto: update
+    open-in-view: false
     properties:
       hibernate:
         format_sql: true
