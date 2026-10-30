@@ -11,4 +11,9 @@ public class StubCardCompanyClient implements CardCompanyClient {
         String approveNo = String.format("%08d", ThreadLocalRandom.current().nextInt(100_000_000));
         return CardApprovalResult.approved(approveNo, "11", "1234-****-****-5678");
     }
+
+    @Override
+    public CardCancelResult cancel(String paymentKey, long amount) {
+        return CardCancelResult.success();
+    }
 }

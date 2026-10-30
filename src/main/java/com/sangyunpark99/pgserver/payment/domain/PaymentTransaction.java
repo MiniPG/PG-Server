@@ -66,8 +66,4 @@ public class PaymentTransaction {
     public void fail() {
         this.status = TransactionStatus.FAILED;
     }
-
-    public long signedAmount() {
-        return type == TransactionType.APPROVE ? amount : -amount;
-    }
 }

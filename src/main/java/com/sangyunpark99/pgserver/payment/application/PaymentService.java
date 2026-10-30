@@ -1,6 +1,7 @@
 package com.sangyunpark99.pgserver.payment.application;
 
 import com.sangyunpark99.pgserver.card.CardApprovalResult;
+import com.sangyunpark99.pgserver.card.CardCancelResult;
 import com.sangyunpark99.pgserver.card.CardCompanyClient;
 import com.sangyunpark99.pgserver.payment.domain.CardInfo;
 import com.sangyunpark99.pgserver.payment.domain.Payment;
@@ -14,6 +15,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.UUID;
 
 @Service
@@ -31,6 +33,7 @@ public class PaymentService {
                 command.orderName(),
                 command.mId(),
                 command.amount(),
+                command.partialCancelable(),
                 LocalDateTime.now()
         );
         return paymentRepository.save(payment);
@@ -69,6 +72,38 @@ public class PaymentService {
             tx.fail();
         }
         return payment;
+    }
+
+    @Transactional(noRollbackFor = CardCancelFailedException.class)
+    public Payment cancel(CancelPaymentCommand command) {
+        Payment payment = findOwned(command.mId(), command.paymentKey());
+
+        if (command.cancelReason() == null || command.cancelReason().isBlank()) {
+            throw new IllegalArgumentException("취소 사유는 필수입니다.");
+        }
+        long cancelAmount = command.cancelAmount() == null ? payment.getBalanceAmount() : command.cancelAmount();
+        payment.validateCancel(cancelAmount);
+
+        PaymentTransaction tx = PaymentTransaction.request(
+                generateTransactionKey(), payment.getPaymentKey(), TransactionType.CANCEL,
+                cancelAmount, command.cancelReason(), LocalDateTime.now()
+        );
+        transactionRepository.save(tx);
+
+        CardCancelResult result = cardCompanyClient.cancel(payment.getPaymentKey(), cancelAmount);
+
+        if (!result.canceled()) {
+            tx.fail();
+            throw new CardCancelFailedException(result.failureCode(), result.failureMessage());
+        }
+        payment.cancel(cancelAmount);
+        tx.complete();
+        return payment;
+    }
+
+    @Transactional(readOnly = true)
+    public List<PaymentTransaction> findCancels(String paymentKey) {
+        return transactionRepository.findByPaymentKeyAndTypeOrderByIdAsc(paymentKey, TransactionType.CANCEL);
     }
 
     private Payment findOwned(String mId, String paymentKey) {
