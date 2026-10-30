@@ -3,7 +3,7 @@ package com.sangyunpark99.pgserver.payment.presentation;
 import com.jayway.jsonpath.JsonPath;
 import com.sangyunpark99.pgserver.card.CardApprovalResult;
 import com.sangyunpark99.pgserver.card.CardCancelResult;
-import com.sangyunpark99.pgserver.card.CardCompanyUnavailableException;
+import com.sangyunpark99.pgserver.common.exception.CardCompanyUnavailableException;
 import com.sangyunpark99.pgserver.card.CardCompanyClient;
 import com.sangyunpark99.pgserver.payment.domain.Payment;
 import com.sangyunpark99.pgserver.payment.domain.PaymentStatus;
@@ -93,7 +93,7 @@ class PaymentApiTest {
         void invalidAmount() throws Exception {
             create(MERCHANT, newOrderId(), 0)
                     .andExpect(status().isBadRequest())
-                    .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+                    .andExpect(jsonPath("$.code").value("INVALID_AMOUNT"));
         }
 
         @Test
@@ -390,7 +390,7 @@ class PaymentApiTest {
 
             cancel(paymentKey, "반품", 20_000L)
                     .andExpect(status().isBadRequest())
-                    .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+                    .andExpect(jsonPath("$.code").value("EXCEED_CANCEL_AMOUNT"));
         }
 
         @Test

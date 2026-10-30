@@ -117,7 +117,7 @@ class TransactionApiTest {
     void invalidPeriod() throws Exception {
         search(newMerchant(), now, now.minusHours(1), null, null)
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+                .andExpect(jsonPath("$.code").value("INVALID_PERIOD"));
     }
 
     @Test

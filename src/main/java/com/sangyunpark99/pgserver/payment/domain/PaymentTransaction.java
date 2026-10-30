@@ -1,5 +1,7 @@
 package com.sangyunpark99.pgserver.payment.domain;
 
+import com.sangyunpark99.pgserver.common.exception.ErrorCode;
+import com.sangyunpark99.pgserver.common.exception.PgException;
 import jakarta.persistence.*;
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -56,7 +58,7 @@ public class PaymentTransaction {
     public static PaymentTransaction request(String transactionKey, String paymentKey, String mId, TransactionType type,
                                              long amount, String reason, LocalDateTime transactedAt) {
         if (amount <= 0) {
-            throw new IllegalArgumentException("거래 금액은 0보다 커야 합니다.");
+            throw new PgException(ErrorCode.INVALID_AMOUNT);
         }
         PaymentTransaction tx = new PaymentTransaction();
         tx.transactionKey = transactionKey;

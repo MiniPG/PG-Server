@@ -1,5 +1,7 @@
 package com.sangyunpark99.pgserver.payment.domain;
 
+import com.sangyunpark99.pgserver.common.exception.ErrorCode;
+import com.sangyunpark99.pgserver.common.exception.PgException;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -28,7 +30,8 @@ class PaymentTest {
     @DisplayName("금액이 0 이하면 생성할 수 없다")
     void create_invalidAmount() {
         assertThatThrownBy(() -> Payment.create("pk_test", "order-1", "티셔츠", "m_test", 0, true, NOW))
-                .isInstanceOf(IllegalArgumentException.class);
+                .isInstanceOf(PgException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.INVALID_AMOUNT);
     }
 
     @Test
@@ -50,7 +53,8 @@ class PaymentTest {
         payment.approve(new CardInfo("11", "1234-****-****-5678", "12345678"), NOW);
 
         assertThatThrownBy(() -> payment.approve(new CardInfo("11", "1234-****-****-5678", "87654321"), NOW))
-                .isInstanceOf(IllegalStateException.class);
+                .isInstanceOf(PgException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.INVALID_STATUS);
     }
 
     @Test
@@ -71,7 +75,8 @@ class PaymentTest {
         payment.abort("REJECT_CARD", "잔액 부족");
 
         assertThatThrownBy(() -> payment.approve(new CardInfo("11", "1234-****-****-5678", "12345678"), NOW))
-                .isInstanceOf(IllegalStateException.class);
+                .isInstanceOf(PgException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.INVALID_STATUS);
     }
 
     @Test
@@ -129,7 +134,8 @@ class PaymentTest {
         payment.cancel(3_000);
 
         assertThatThrownBy(() -> payment.cancel(8_000))
-                .isInstanceOf(IllegalArgumentException.class);
+                .isInstanceOf(PgException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.EXCEED_CANCEL_AMOUNT);
     }
 
     @Test
@@ -138,7 +144,8 @@ class PaymentTest {
         Payment payment = approvedPayment(false);
 
         assertThatThrownBy(() -> payment.cancel(3_000))
-                .isInstanceOf(NotPartialCancelableException.class);
+                .isInstanceOf(PgException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.NOT_PARTIAL_CANCELABLE);
         assertThat(payment.getBalanceAmount()).isEqualTo(10_000);
     }
 
@@ -148,7 +155,8 @@ class PaymentTest {
         Payment payment = newPayment();
 
         assertThatThrownBy(() -> payment.cancel(15_000))
-                .isInstanceOf(IllegalStateException.class);
+                .isInstanceOf(PgException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.INVALID_STATUS);
     }
 
     @Test
@@ -158,7 +166,8 @@ class PaymentTest {
         payment.cancel(10_000);
 
         assertThatThrownBy(() -> payment.cancel(1_000))
-                .isInstanceOf(IllegalStateException.class);
+                .isInstanceOf(PgException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.INVALID_STATUS);
     }
 
     @Test
@@ -177,6 +186,7 @@ class PaymentTest {
         Payment payment = approvedPayment(true);
 
         assertThatThrownBy(payment::expire)
-                .isInstanceOf(IllegalStateException.class);
+                .isInstanceOf(PgException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.INVALID_STATUS);
     }
 }

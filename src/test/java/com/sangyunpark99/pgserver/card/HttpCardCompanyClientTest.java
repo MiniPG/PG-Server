@@ -1,5 +1,6 @@
 package com.sangyunpark99.pgserver.card;
 
+import com.sangyunpark99.pgserver.common.exception.CardCompanyUnavailableException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
