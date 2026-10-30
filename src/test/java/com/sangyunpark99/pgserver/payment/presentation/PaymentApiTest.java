@@ -3,6 +3,7 @@ package com.sangyunpark99.pgserver.payment.presentation;
 import com.jayway.jsonpath.JsonPath;
 import com.sangyunpark99.pgserver.card.CardApprovalResult;
 import com.sangyunpark99.pgserver.card.CardCancelResult;
+import com.sangyunpark99.pgserver.card.CardCompanyUnavailableException;
 import com.sangyunpark99.pgserver.card.CardCompanyClient;
 import com.sangyunpark99.pgserver.payment.domain.Payment;
 import com.sangyunpark99.pgserver.payment.domain.PaymentStatus;
@@ -58,9 +59,9 @@ class PaymentApiTest {
 
     @BeforeEach
     void setUp() {
-        given(cardCompanyClient.approve(anyString(), anyLong()))
+        given(cardCompanyClient.approve(anyString(), anyString(), anyLong()))
                 .willReturn(CardApprovalResult.approved("12345678", "11", "1234-****-****-5678"));
-        given(cardCompanyClient.cancel(anyString(), anyLong()))
+        given(cardCompanyClient.cancel(anyString(), anyString(), anyLong()))
                 .willReturn(CardCancelResult.success());
     }
 
@@ -135,7 +136,7 @@ class PaymentApiTest {
         @Test
         @DisplayName("카드사가 거절하면 결제 ABORTED, 승인 거래 FAILED")
         void rejected() throws Exception {
-            given(cardCompanyClient.approve(anyString(), anyLong()))
+            given(cardCompanyClient.approve(anyString(), anyString(), anyLong()))
                     .willReturn(CardApprovalResult.rejected("REJECT_CARD", "잔액 부족"));
             String orderId = newOrderId();
             String paymentKey = createAndGetKey(orderId, 15_000);
@@ -151,6 +152,25 @@ class PaymentApiTest {
         }
 
         @Test
+        @DisplayName("카드사 응답을 못 받으면 503, 결제는 IN_PROGRESS, 승인 거래는 REQUESTED로 남는다")
+        void cardUnavailable() throws Exception {
+            given(cardCompanyClient.approve(anyString(), anyString(), anyLong()))
+                    .willThrow(new CardCompanyUnavailableException("timeout", null));
+            String orderId = newOrderId();
+            String paymentKey = createAndGetKey(orderId, 15_000);
+
+            confirm(MERCHANT, paymentKey, orderId, 15_000)
+                    .andExpect(status().isServiceUnavailable())
+                    .andExpect(jsonPath("$.code").value("CARD_COMPANY_UNAVAILABLE"));
+
+            Payment payment = paymentRepository.findByPaymentKey(paymentKey).orElseThrow();
+            assertThat(payment.getStatus()).isEqualTo(PaymentStatus.IN_PROGRESS);
+            List<PaymentTransaction> txs = transactionRepository.findByPaymentKeyAndTypeOrderByIdAsc(paymentKey, TransactionType.APPROVE);
+            assertThat(txs).hasSize(1);
+            assertThat(txs.getFirst().getStatus()).isEqualTo(TransactionStatus.REQUESTED);
+        }
+
+        @Test
         @DisplayName("금액이 다르면 400이고 카드사는 호출되지 않는다")
         void amountMismatch() throws Exception {
             String orderId = newOrderId();
@@ -159,7 +179,7 @@ class PaymentApiTest {
             confirm(MERCHANT, paymentKey, orderId, 1_000)
                     .andExpect(status().isBadRequest());
 
-            verify(cardCompanyClient, never()).approve(anyString(), anyLong());
+            verify(cardCompanyClient, never()).approve(anyString(), anyString(), anyLong());
         }
 
         @Test
@@ -181,7 +201,7 @@ class PaymentApiTest {
             confirm("m_other", paymentKey, orderId, 15_000)
                     .andExpect(status().isNotFound());
 
-            verify(cardCompanyClient, never()).approve(anyString(), anyLong());
+            verify(cardCompanyClient, never()).approve(anyString(), anyString(), anyLong());
         }
 
         @Test
@@ -203,7 +223,7 @@ class PaymentApiTest {
                     .andExpect(status().isConflict())
                     .andExpect(jsonPath("$.code").value("INVALID_STATUS"));
 
-            verify(cardCompanyClient, times(1)).approve(anyString(), anyLong());
+            verify(cardCompanyClient, times(1)).approve(anyString(), anyString(), anyLong());
         }
 
         @Test
@@ -217,7 +237,7 @@ class PaymentApiTest {
             confirm(MERCHANT, paymentKey, orderId, 15_000)
                     .andExpect(status().isConflict());
 
-            verify(cardCompanyClient, never()).approve(anyString(), anyLong());
+            verify(cardCompanyClient, never()).approve(anyString(), anyString(), anyLong());
         }
     }
 
@@ -342,7 +362,7 @@ class PaymentApiTest {
                     .andExpect(status().isBadRequest())
                     .andExpect(jsonPath("$.code").value("NOT_PARTIAL_CANCELABLE"));
 
-            verify(cardCompanyClient, never()).cancel(anyString(), anyLong());
+            verify(cardCompanyClient, never()).cancel(anyString(), anyString(), anyLong());
         }
 
         @Test
@@ -383,7 +403,7 @@ class PaymentApiTest {
                     .andExpect(status().isConflict())
                     .andExpect(jsonPath("$.code").value("INVALID_STATUS"));
 
-            verify(cardCompanyClient, never()).cancel(anyString(), anyLong());
+            verify(cardCompanyClient, never()).cancel(anyString(), anyString(), anyLong());
         }
 
         @Test
@@ -411,10 +431,27 @@ class PaymentApiTest {
         }
 
         @Test
+        @DisplayName("카드사 응답을 못 받으면 503, 결제·잔액 그대로, 취소 거래는 REQUESTED로 남는다")
+        void cardUnavailable() throws Exception {
+            String paymentKey = approvedPaymentKey(10_000, true);
+            given(cardCompanyClient.cancel(anyString(), anyString(), anyLong()))
+                    .willThrow(new CardCompanyUnavailableException("timeout", null));
+
+            cancel(paymentKey, "1개 반품", 3_000L)
+                    .andExpect(status().isServiceUnavailable());
+
+            Payment payment = paymentRepository.findByPaymentKey(paymentKey).orElseThrow();
+            assertThat(payment.getStatus()).isEqualTo(PaymentStatus.DONE);
+            assertThat(payment.getBalanceAmount()).isEqualTo(10_000);
+            assertThat(transactionRepository.findByPaymentKeyAndTypeOrderByIdAsc(paymentKey, TransactionType.CANCEL)
+                    .getFirst().getStatus()).isEqualTo(TransactionStatus.REQUESTED);
+        }
+
+        @Test
         @DisplayName("카드사가 취소를 거절하면 409, 결제·잔액은 그대로, FAILED 거래는 남는다")
         void cardRejected() throws Exception {
             String paymentKey = approvedPaymentKey(10_000, true);
-            given(cardCompanyClient.cancel(anyString(), anyLong()))
+            given(cardCompanyClient.cancel(anyString(), anyString(), anyLong()))
                     .willReturn(CardCancelResult.rejected("CARD_ERROR", "카드사 오류"));
 
             cancel(paymentKey, "1개 반품", 3_000L)
