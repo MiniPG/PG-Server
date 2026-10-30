@@ -12,7 +12,7 @@ class PaymentTest {
     private static final LocalDateTime NOW = LocalDateTime.of(2026, 10, 30, 12, 0);
 
     private Payment newPayment() {
-        return Payment.create("pk_test", "order-1", "티셔츠", "m_test", 15_000, NOW);
+        return Payment.create("pk_test", "order-1", "티셔츠", "m_test", 15_000, true, NOW);
     }
 
     @Test
@@ -27,7 +27,7 @@ class PaymentTest {
     @Test
     @DisplayName("금액이 0 이하면 생성할 수 없다")
     void create_invalidAmount() {
-        assertThatThrownBy(() -> Payment.create("pk_test", "order-1", "티셔츠", "m_test", 0, NOW))
+        assertThatThrownBy(() -> Payment.create("pk_test", "order-1", "티셔츠", "m_test", 0, true, NOW))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
@@ -81,5 +81,83 @@ class PaymentTest {
 
         assertThat(payment.isExpired(NOW.plusMinutes(30))).isFalse();
         assertThat(payment.isExpired(NOW.plusMinutes(30).plusSeconds(1))).isTrue();
+    }
+
+    private Payment approvedPayment(boolean partialCancelable) {
+        Payment payment = Payment.create("pk_test", "order-1", "티셔츠", "m_test", 10_000, partialCancelable, NOW);
+        payment.approve(new CardInfo("11", "1234-****-****-5678", "12345678"), NOW);
+        return payment;
+    }
+
+    @Test
+    @DisplayName("일부를 취소하면 잔액이 줄고 PARTIAL_CANCELED")
+    void partialCancel() {
+        Payment payment = approvedPayment(true);
+
+        payment.cancel(3_000);
+
+        assertThat(payment.getBalanceAmount()).isEqualTo(7_000);
+        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.PARTIAL_CANCELED);
+    }
+
+    @Test
+    @DisplayName("부분 취소를 여러 번 해서 잔액이 0이 되면 CANCELED")
+    void partialCancel_untilZero() {
+        Payment payment = approvedPayment(true);
+
+        payment.cancel(3_000);
+        payment.cancel(7_000);
+
+        assertThat(payment.getBalanceAmount()).isZero();
+        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.CANCELED);
+    }
+
+    @Test
+    @DisplayName("잔액 전체를 취소하면 CANCELED")
+    void fullCancel() {
+        Payment payment = approvedPayment(false);
+
+        payment.cancel(10_000);
+
+        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.CANCELED);
+    }
+
+    @Test
+    @DisplayName("잔액보다 큰 금액은 취소할 수 없다")
+    void cancel_overBalance() {
+        Payment payment = approvedPayment(true);
+        payment.cancel(3_000);
+
+        assertThatThrownBy(() -> payment.cancel(8_000))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    @DisplayName("부분 취소 불가 결제는 잔액보다 적게 취소할 수 없다")
+    void cancel_notPartialCancelable() {
+        Payment payment = approvedPayment(false);
+
+        assertThatThrownBy(() -> payment.cancel(3_000))
+                .isInstanceOf(NotPartialCancelableException.class);
+        assertThat(payment.getBalanceAmount()).isEqualTo(10_000);
+    }
+
+    @Test
+    @DisplayName("승인 전(IN_PROGRESS) 결제는 취소할 수 없다")
+    void cancel_beforeApprove() {
+        Payment payment = newPayment();
+
+        assertThatThrownBy(() -> payment.cancel(15_000))
+                .isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    @DisplayName("CANCELED 결제는 다시 취소할 수 없다")
+    void cancel_afterCanceled() {
+        Payment payment = approvedPayment(true);
+        payment.cancel(10_000);
+
+        assertThatThrownBy(() -> payment.cancel(1_000))
+                .isInstanceOf(IllegalStateException.class);
     }
 }

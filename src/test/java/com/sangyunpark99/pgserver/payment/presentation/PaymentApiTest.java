@@ -2,8 +2,10 @@ package com.sangyunpark99.pgserver.payment.presentation;
 
 import com.jayway.jsonpath.JsonPath;
 import com.sangyunpark99.pgserver.card.CardApprovalResult;
+import com.sangyunpark99.pgserver.card.CardCancelResult;
 import com.sangyunpark99.pgserver.card.CardCompanyClient;
 import com.sangyunpark99.pgserver.payment.domain.Payment;
+import com.sangyunpark99.pgserver.payment.domain.PaymentStatus;
 import com.sangyunpark99.pgserver.payment.domain.PaymentTransaction;
 import com.sangyunpark99.pgserver.payment.domain.TransactionStatus;
 import com.sangyunpark99.pgserver.payment.domain.TransactionType;
@@ -58,6 +60,8 @@ class PaymentApiTest {
     void setUp() {
         given(cardCompanyClient.approve(anyString(), anyLong()))
                 .willReturn(CardApprovalResult.approved("12345678", "11", "1234-****-****-5678"));
+        given(cardCompanyClient.cancel(anyString(), anyLong()))
+                .willReturn(CardCancelResult.success());
     }
 
     @Nested
@@ -121,7 +125,7 @@ class PaymentApiTest {
                     .andExpect(jsonPath("$.status").value("DONE"))
                     .andExpect(jsonPath("$.approvedAt").exists());
 
-            List<PaymentTransaction> txs = transactionRepository.findByPaymentKey(paymentKey);
+            List<PaymentTransaction> txs = transactionRepository.findByPaymentKeyAndTypeOrderByIdAsc(paymentKey, TransactionType.APPROVE);
             assertThat(txs).hasSize(1);
             assertThat(txs.getFirst().getType()).isEqualTo(TransactionType.APPROVE);
             assertThat(txs.getFirst().getStatus()).isEqualTo(TransactionStatus.DONE);
@@ -142,7 +146,7 @@ class PaymentApiTest {
 
             Payment payment = paymentRepository.findByPaymentKey(paymentKey).orElseThrow();
             assertThat(payment.getFailureCode()).isEqualTo("REJECT_CARD");
-            assertThat(transactionRepository.findByPaymentKey(paymentKey).getFirst().getStatus())
+            assertThat(transactionRepository.findByPaymentKeyAndTypeOrderByIdAsc(paymentKey, TransactionType.APPROVE).getFirst().getStatus())
                     .isEqualTo(TransactionStatus.FAILED);
         }
 
@@ -207,7 +211,7 @@ class PaymentApiTest {
         void expired() throws Exception {
             String orderId = newOrderId();
             String paymentKey = "pk_" + UUID.randomUUID().toString().replace("-", "");
-            paymentRepository.save(Payment.create(paymentKey, orderId, "티셔츠", MERCHANT, 15_000,
+            paymentRepository.save(Payment.create(paymentKey, orderId, "티셔츠", MERCHANT, 15_000, true,
                     LocalDateTime.now().minusMinutes(31)));
 
             confirm(MERCHANT, paymentKey, orderId, 15_000)
@@ -286,6 +290,171 @@ class PaymentApiTest {
         }
     }
 
+    @Nested
+    @DisplayName("POST /v1/payments/{paymentKey}/cancel (결제 취소)")
+    class Cancel {
+
+        @Test
+        @DisplayName("partialCancelable을 보내지 않으면 true")
+        void partialCancelableDefault() throws Exception {
+            create(MERCHANT, newOrderId(), 10_000)
+                    .andExpect(jsonPath("$.partialCancelable").value(true));
+        }
+
+        @Test
+        @DisplayName("금액 없이 요청하면 전체 취소 → CANCELED, 잔액 0")
+        void fullCancel() throws Exception {
+            String paymentKey = approvedPaymentKey(10_000, true);
+
+            cancel(paymentKey, "고객 변심", null)
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.status").value("CANCELED"))
+                    .andExpect(jsonPath("$.balanceAmount").value(0))
+                    .andExpect(jsonPath("$.cancels.length()").value(1))
+                    .andExpect(jsonPath("$.cancels[0].cancelAmount").value(10_000))
+                    .andExpect(jsonPath("$.cancels[0].cancelReason").value("고객 변심"))
+                    .andExpect(jsonPath("$.cancels[0].cancelStatus").value("DONE"));
+        }
+
+        @Test
+        @DisplayName("부분 취소 두 번 → PARTIAL_CANCELED 후 CANCELED, cancels 2건")
+        void partialCancelTwice() throws Exception {
+            String paymentKey = approvedPaymentKey(10_000, true);
+
+            cancel(paymentKey, "1개 반품", 3_000L)
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.status").value("PARTIAL_CANCELED"))
+                    .andExpect(jsonPath("$.balanceAmount").value(7_000));
+
+            cancel(paymentKey, "나머지 반품", 7_000L)
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.status").value("CANCELED"))
+                    .andExpect(jsonPath("$.balanceAmount").value(0))
+                    .andExpect(jsonPath("$.cancels.length()").value(2));
+        }
+
+        @Test
+        @DisplayName("부분 취소 불가 결제에 부분 취소 → 400 NOT_PARTIAL_CANCELABLE, 카드사 호출 없음")
+        void notPartialCancelable() throws Exception {
+            String paymentKey = approvedPaymentKey(10_000, false);
+
+            cancel(paymentKey, "1개 반품", 3_000L)
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("NOT_PARTIAL_CANCELABLE"));
+
+            verify(cardCompanyClient, never()).cancel(anyString(), anyLong());
+        }
+
+        @Test
+        @DisplayName("부분 취소 불가 결제도 전체 금액이면 취소된다")
+        void notPartialCancelable_fullAmount() throws Exception {
+            String paymentKey = approvedPaymentKey(10_000, false);
+
+            cancel(paymentKey, "고객 변심", 10_000L)
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.status").value("CANCELED"));
+        }
+
+        @Test
+        @DisplayName("잔액보다 큰 금액 → 400")
+        void overBalance() throws Exception {
+            String paymentKey = approvedPaymentKey(10_000, true);
+
+            cancel(paymentKey, "반품", 20_000L)
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+        }
+
+        @Test
+        @DisplayName("취소 사유가 없으면 400")
+        void noReason() throws Exception {
+            String paymentKey = approvedPaymentKey(10_000, true);
+
+            cancel(paymentKey, " ", null)
+                    .andExpect(status().isBadRequest());
+        }
+
+        @Test
+        @DisplayName("승인 전 결제 취소 → 409, 카드사 호출 없음")
+        void beforeApprove() throws Exception {
+            String paymentKey = createAndGetKey(newOrderId(), 10_000);
+
+            cancel(paymentKey, "고객 변심", null)
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.code").value("INVALID_STATUS"));
+
+            verify(cardCompanyClient, never()).cancel(anyString(), anyLong());
+        }
+
+        @Test
+        @DisplayName("이미 전체 취소된 결제 → 409")
+        void alreadyCanceled() throws Exception {
+            String paymentKey = approvedPaymentKey(10_000, true);
+            cancel(paymentKey, "고객 변심", null).andExpect(status().isOk());
+
+            cancel(paymentKey, "고객 변심", null)
+                    .andExpect(status().isConflict());
+        }
+
+        @Test
+        @DisplayName("다른 가맹점의 결제 → 404")
+        void otherMerchant() throws Exception {
+            String paymentKey = approvedPaymentKey(10_000, true);
+
+            mockMvc.perform(post("/v1/payments/{paymentKey}/cancel", paymentKey)
+                            .header("X-Merchant-Id", "m_other")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("""
+                                    {"cancelReason":"고객 변심"}
+                                    """))
+                    .andExpect(status().isNotFound());
+        }
+
+        @Test
+        @DisplayName("카드사가 취소를 거절하면 409, 결제·잔액은 그대로, FAILED 거래는 남는다")
+        void cardRejected() throws Exception {
+            String paymentKey = approvedPaymentKey(10_000, true);
+            given(cardCompanyClient.cancel(anyString(), anyLong()))
+                    .willReturn(CardCancelResult.rejected("CARD_ERROR", "카드사 오류"));
+
+            cancel(paymentKey, "1개 반품", 3_000L)
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.code").value("CANCEL_FAILED"));
+
+            Payment payment = paymentRepository.findByPaymentKey(paymentKey).orElseThrow();
+            assertThat(payment.getStatus()).isEqualTo(PaymentStatus.DONE);
+            assertThat(payment.getBalanceAmount()).isEqualTo(10_000);
+
+            mockMvc.perform(get("/v1/payments/{paymentKey}", paymentKey).header("X-Merchant-Id", MERCHANT))
+                    .andExpect(jsonPath("$.cancels.length()").value(1))
+                    .andExpect(jsonPath("$.cancels[0].cancelStatus").value("FAILED"));
+        }
+    }
+
+    private String approvedPaymentKey(long amount, boolean partialCancelable) throws Exception {
+        String orderId = newOrderId();
+        String response = create(MERCHANT, orderId, amount, partialCancelable)
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        String paymentKey = JsonPath.read(response, "$.paymentKey");
+        confirm(MERCHANT, paymentKey, orderId, amount).andExpect(status().isOk());
+        return paymentKey;
+    }
+
+    private ResultActions cancel(String paymentKey, String reason, Long amount) throws Exception {
+        String body = amount == null
+                ? """
+                  {"cancelReason":"%s"}
+                  """.formatted(reason)
+                : """
+                  {"cancelReason":"%s","cancelAmount":%d}
+                  """.formatted(reason, amount);
+        return mockMvc.perform(post("/v1/payments/{paymentKey}/cancel", paymentKey)
+                .header("X-Merchant-Id", MERCHANT)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(body));
+    }
+
     private String newOrderId() {
         return "order-" + UUID.randomUUID();
     }
@@ -294,6 +463,16 @@ class PaymentApiTest {
         String body = """
                 {"orderId":"%s","orderName":"티셔츠","amount":%d}
                 """.formatted(orderId, amount);
+        return mockMvc.perform(post("/v1/payments")
+                .header("X-Merchant-Id", mId)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(body));
+    }
+
+    private ResultActions create(String mId, String orderId, long amount, boolean partialCancelable) throws Exception {
+        String body = """
+                {"orderId":"%s","orderName":"티셔츠","amount":%d,"partialCancelable":%b}
+                """.formatted(orderId, amount, partialCancelable);
         return mockMvc.perform(post("/v1/payments")
                 .header("X-Merchant-Id", mId)
                 .contentType(MediaType.APPLICATION_JSON)

@@ -1,6 +1,8 @@
 package com.sangyunpark99.pgserver.common;
 
+import com.sangyunpark99.pgserver.payment.application.CardCancelFailedException;
 import com.sangyunpark99.pgserver.payment.application.PaymentNotFoundException;
+import com.sangyunpark99.pgserver.payment.domain.NotPartialCancelableException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -15,6 +17,18 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ErrorResponse> notFound(PaymentNotFoundException e) {
         return ResponseEntity.status(HttpStatus.NOT_FOUND)
                 .body(new ErrorResponse("NOT_FOUND_PAYMENT", e.getMessage()));
+    }
+
+    @ExceptionHandler(NotPartialCancelableException.class)
+    public ResponseEntity<ErrorResponse> notPartialCancelable(NotPartialCancelableException e) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(new ErrorResponse("NOT_PARTIAL_CANCELABLE", e.getMessage()));
+    }
+
+    @ExceptionHandler(CardCancelFailedException.class)
+    public ResponseEntity<ErrorResponse> cancelFailed(CardCancelFailedException e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(new ErrorResponse("CANCEL_FAILED", "[" + e.getFailureCode() + "] " + e.getMessage()));
     }
 
     @ExceptionHandler(IllegalArgumentException.class)

@@ -66,7 +66,8 @@ public class Payment {
     private String failureMessage;
 
     public static Payment create(String paymentKey, String orderId, String orderName,
-                                 String mId, long totalAmount, LocalDateTime requestedAt) {
+                                 String mId, long totalAmount, boolean partialCancelable,
+                                 LocalDateTime requestedAt) {
         if (totalAmount <= 0) {
             throw new IllegalArgumentException("결제 금액은 0보다 커야 합니다.");
         }
@@ -77,7 +78,7 @@ public class Payment {
         p.mId = mId;
         p.totalAmount = totalAmount;
         p.balanceAmount = totalAmount;
-        p.partialCancelable = false;
+        p.partialCancelable = partialCancelable;
         p.status = PaymentStatus.IN_PROGRESS;
         p.requestedAt = requestedAt;
         return p;
@@ -95,13 +96,25 @@ public class Payment {
         this.failureMessage = failureMessage;
     }
 
-    public void expire() {
-        changeStatus(PaymentStatus.EXPIRED);
+    public void validateCancel(long cancelAmount) {
+        if (status != PaymentStatus.DONE && status != PaymentStatus.PARTIAL_CANCELED) {
+            throw new IllegalStateException("취소할 수 없는 상태입니다. status=" + status);
+        }
+        if (cancelAmount <= 0) {
+            throw new IllegalArgumentException("취소 금액은 0보다 커야 합니다.");
+        }
+        if (cancelAmount > balanceAmount) {
+            throw new IllegalArgumentException("취소 금액이 남은 금액보다 큽니다. balanceAmount=" + balanceAmount);
+        }
+        if (!partialCancelable && cancelAmount < balanceAmount) {
+            throw new NotPartialCancelableException();
+        }
     }
 
-    public void cancel() {
-        changeStatus(PaymentStatus.CANCELED);
-        this.balanceAmount = 0;
+    public void cancel(long cancelAmount) {
+        validateCancel(cancelAmount);
+        this.balanceAmount -= cancelAmount;
+        changeStatus(balanceAmount == 0 ? PaymentStatus.CANCELED : PaymentStatus.PARTIAL_CANCELED);
     }
 
     public boolean isExpired(LocalDateTime now) {
