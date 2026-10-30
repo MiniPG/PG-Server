@@ -19,6 +19,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import com.sangyunpark99.pgserver.support.TestMerchants;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
@@ -47,6 +49,9 @@ class PaymentApiTest {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @Autowired
+    private TestMerchants merchants;
 
     @Autowired
     private PaymentRepository paymentRepository;
@@ -253,7 +258,7 @@ class PaymentApiTest {
             String orderId = newOrderId();
             String paymentKey = createAndGetKey(orderId, 15_000);
 
-            mockMvc.perform(get("/v1/payments/{paymentKey}", paymentKey).header("X-Merchant-Id", MERCHANT))
+            mockMvc.perform(get("/v1/payments/{paymentKey}", paymentKey).header(HttpHeaders.AUTHORIZATION, merchants.authorization(MERCHANT)))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.paymentKey").value(paymentKey))
                     .andExpect(jsonPath("$.orderId").value(orderId))
@@ -266,7 +271,7 @@ class PaymentApiTest {
             String orderId = newOrderId();
             String paymentKey = createAndGetKey(orderId, 15_000);
 
-            mockMvc.perform(get("/v1/payments/orders/{orderId}", orderId).header("X-Merchant-Id", MERCHANT))
+            mockMvc.perform(get("/v1/payments/orders/{orderId}", orderId).header(HttpHeaders.AUTHORIZATION, merchants.authorization(MERCHANT)))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.paymentKey").value(paymentKey));
         }
@@ -278,7 +283,7 @@ class PaymentApiTest {
             String paymentKey = createAndGetKey(orderId, 15_000);
             confirm(MERCHANT, paymentKey, orderId, 15_000).andExpect(status().isOk());
 
-            mockMvc.perform(get("/v1/payments/{paymentKey}", paymentKey).header("X-Merchant-Id", MERCHANT))
+            mockMvc.perform(get("/v1/payments/{paymentKey}", paymentKey).header(HttpHeaders.AUTHORIZATION, merchants.authorization(MERCHANT)))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.status").value("DONE"))
                     .andExpect(jsonPath("$.approvedAt").exists());
@@ -287,7 +292,7 @@ class PaymentApiTest {
         @Test
         @DisplayName("없는 paymentKey면 404")
         void notFound() throws Exception {
-            mockMvc.perform(get("/v1/payments/{paymentKey}", "pk_not_exist").header("X-Merchant-Id", MERCHANT))
+            mockMvc.perform(get("/v1/payments/{paymentKey}", "pk_not_exist").header(HttpHeaders.AUTHORIZATION, merchants.authorization(MERCHANT)))
                     .andExpect(status().isNotFound())
                     .andExpect(jsonPath("$.code").value("NOT_FOUND_PAYMENT"));
         }
@@ -297,7 +302,7 @@ class PaymentApiTest {
         void otherMerchant_byPaymentKey() throws Exception {
             String paymentKey = createAndGetKey(newOrderId(), 15_000);
 
-            mockMvc.perform(get("/v1/payments/{paymentKey}", paymentKey).header("X-Merchant-Id", "m_other"))
+            mockMvc.perform(get("/v1/payments/{paymentKey}", paymentKey).header(HttpHeaders.AUTHORIZATION, merchants.authorization("m_other")))
                     .andExpect(status().isNotFound());
         }
 
@@ -307,7 +312,7 @@ class PaymentApiTest {
             String orderId = newOrderId();
             createAndGetKey(orderId, 15_000);
 
-            mockMvc.perform(get("/v1/payments/orders/{orderId}", orderId).header("X-Merchant-Id", "m_other"))
+            mockMvc.perform(get("/v1/payments/orders/{orderId}", orderId).header(HttpHeaders.AUTHORIZATION, merchants.authorization("m_other")))
                     .andExpect(status().isNotFound());
         }
     }
@@ -425,7 +430,7 @@ class PaymentApiTest {
             String paymentKey = approvedPaymentKey(10_000, true);
 
             mockMvc.perform(post("/v1/payments/{paymentKey}/cancel", paymentKey)
-                            .header("X-Merchant-Id", "m_other")
+                            .header(HttpHeaders.AUTHORIZATION, merchants.authorization("m_other"))
                             .contentType(MediaType.APPLICATION_JSON)
                             .content("""
                                     {"cancelReason":"고객 변심"}
@@ -465,7 +470,7 @@ class PaymentApiTest {
             assertThat(payment.getStatus()).isEqualTo(PaymentStatus.DONE);
             assertThat(payment.getBalanceAmount()).isEqualTo(10_000);
 
-            mockMvc.perform(get("/v1/payments/{paymentKey}", paymentKey).header("X-Merchant-Id", MERCHANT))
+            mockMvc.perform(get("/v1/payments/{paymentKey}", paymentKey).header(HttpHeaders.AUTHORIZATION, merchants.authorization(MERCHANT)))
                     .andExpect(jsonPath("$.cancels.length()").value(1))
                     .andExpect(jsonPath("$.cancels[0].cancelStatus").value("FAILED"));
         }
@@ -490,7 +495,7 @@ class PaymentApiTest {
                   {"cancelReason":"%s","cancelAmount":%d}
                   """.formatted(reason, amount);
         return mockMvc.perform(post("/v1/payments/{paymentKey}/cancel", paymentKey)
-                .header("X-Merchant-Id", MERCHANT)
+                .header(HttpHeaders.AUTHORIZATION, merchants.authorization(MERCHANT))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(body));
     }
@@ -504,7 +509,7 @@ class PaymentApiTest {
                 {"orderId":"%s","orderName":"티셔츠","amount":%d}
                 """.formatted(orderId, amount);
         return mockMvc.perform(post("/v1/payments")
-                .header("X-Merchant-Id", mId)
+                .header(HttpHeaders.AUTHORIZATION, merchants.authorization(mId))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(body));
     }
@@ -514,7 +519,7 @@ class PaymentApiTest {
                 {"orderId":"%s","orderName":"티셔츠","amount":%d,"partialCancelable":%b}
                 """.formatted(orderId, amount, partialCancelable);
         return mockMvc.perform(post("/v1/payments")
-                .header("X-Merchant-Id", mId)
+                .header(HttpHeaders.AUTHORIZATION, merchants.authorization(mId))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(body));
     }
@@ -531,7 +536,7 @@ class PaymentApiTest {
                 {"paymentKey":"%s","orderId":"%s","amount":%d}
                 """.formatted(paymentKey, orderId, amount);
         return mockMvc.perform(post("/v1/payments/confirm")
-                .header("X-Merchant-Id", mId)
+                .header(HttpHeaders.AUTHORIZATION, merchants.authorization(mId))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(body));
     }

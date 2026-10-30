@@ -6,6 +6,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import com.sangyunpark99.pgserver.support.TestMerchants;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
@@ -24,6 +26,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class TransactionApiTest {
 
     @Autowired MockMvc mockMvc;
+    @Autowired TestMerchants merchants;
 
     private final LocalDateTime now = LocalDateTime.now().truncatedTo(ChronoUnit.SECONDS);
 
@@ -133,7 +136,7 @@ class TransactionApiTest {
     private String approve(String mId, long amount) throws Exception {
         String orderId = "order-" + UUID.randomUUID();
         String created = mockMvc.perform(post("/v1/payments")
-                        .header("X-Merchant-Id", mId)
+                        .header(HttpHeaders.AUTHORIZATION, merchants.authorization(mId))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"orderId":"%s","orderName":"티셔츠","amount":%d}
@@ -143,7 +146,7 @@ class TransactionApiTest {
         String paymentKey = JsonPath.read(created, "$.paymentKey");
 
         mockMvc.perform(post("/v1/payments/confirm")
-                        .header("X-Merchant-Id", mId)
+                        .header(HttpHeaders.AUTHORIZATION, merchants.authorization(mId))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"paymentKey":"%s","orderId":"%s","amount":%d}
@@ -154,7 +157,7 @@ class TransactionApiTest {
 
     private void cancel(String mId, String paymentKey, long amount) throws Exception {
         mockMvc.perform(post("/v1/payments/{paymentKey}/cancel", paymentKey)
-                        .header("X-Merchant-Id", mId)
+                        .header(HttpHeaders.AUTHORIZATION, merchants.authorization(mId))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"cancelReason":"반품","cancelAmount":%d}
@@ -165,7 +168,7 @@ class TransactionApiTest {
     private ResultActions search(String mId, LocalDateTime start, LocalDateTime end,
                                  String startingAfter, Integer limit) throws Exception {
         var request = get("/v1/transactions")
-                .header("X-Merchant-Id", mId)
+                .header(HttpHeaders.AUTHORIZATION, merchants.authorization(mId))
                 .param("startDate", start.toString())
                 .param("endDate", end.toString());
         if (startingAfter != null) {
