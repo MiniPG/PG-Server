@@ -131,6 +131,7 @@ class PaymentApiTest {
             assertThat(txs.getFirst().getType()).isEqualTo(TransactionType.APPROVE);
             assertThat(txs.getFirst().getStatus()).isEqualTo(TransactionStatus.DONE);
             assertThat(txs.getFirst().getAmount()).isEqualTo(15_000);
+            assertThat(txs.getFirst().getCompletedAt()).isNotNull();
         }
 
         @Test
@@ -168,6 +169,7 @@ class PaymentApiTest {
             List<PaymentTransaction> txs = transactionRepository.findByPaymentKeyAndTypeOrderByIdAsc(paymentKey, TransactionType.APPROVE);
             assertThat(txs).hasSize(1);
             assertThat(txs.getFirst().getStatus()).isEqualTo(TransactionStatus.REQUESTED);
+            assertThat(txs.getFirst().getCompletedAt()).isNull();
         }
 
         @Test
@@ -333,7 +335,8 @@ class PaymentApiTest {
                     .andExpect(jsonPath("$.cancels.length()").value(1))
                     .andExpect(jsonPath("$.cancels[0].cancelAmount").value(10_000))
                     .andExpect(jsonPath("$.cancels[0].cancelReason").value("고객 변심"))
-                    .andExpect(jsonPath("$.cancels[0].cancelStatus").value("DONE"));
+                    .andExpect(jsonPath("$.cancels[0].cancelStatus").value("DONE"))
+                    .andExpect(jsonPath("$.cancels[0].canceledAt").isNotEmpty());
         }
 
         @Test
