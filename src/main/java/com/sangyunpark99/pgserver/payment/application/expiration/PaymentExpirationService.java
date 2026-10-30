@@ -1,4 +1,4 @@
-package com.sangyunpark99.pgserver.payment.application;
+package com.sangyunpark99.pgserver.payment.application.expiration;
 
 import com.sangyunpark99.pgserver.payment.domain.Payment;
 import com.sangyunpark99.pgserver.payment.domain.PaymentStatus;
