@@ -1,5 +1,7 @@
 package com.sangyunpark99.pgserver.payment.domain;
 
+import com.sangyunpark99.pgserver.common.exception.ErrorCode;
+import com.sangyunpark99.pgserver.common.exception.PgException;
 import jakarta.persistence.*;
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -70,7 +72,7 @@ public class Payment {
                                  String mId, long totalAmount, boolean partialCancelable,
                                  LocalDateTime requestedAt) {
         if (totalAmount <= 0) {
-            throw new IllegalArgumentException("결제 금액은 0보다 커야 합니다.");
+            throw new PgException(ErrorCode.INVALID_AMOUNT);
         }
         Payment p = new Payment();
         p.paymentKey = paymentKey;
@@ -103,16 +105,16 @@ public class Payment {
 
     public void validateCancel(long cancelAmount) {
         if (status != PaymentStatus.DONE && status != PaymentStatus.PARTIAL_CANCELED) {
-            throw new IllegalStateException("취소할 수 없는 상태입니다. status=" + status);
+            throw new PgException(ErrorCode.INVALID_STATUS, "취소할 수 없는 상태입니다. status=" + status);
         }
         if (cancelAmount <= 0) {
-            throw new IllegalArgumentException("취소 금액은 0보다 커야 합니다.");
+            throw new PgException(ErrorCode.INVALID_AMOUNT);
         }
         if (cancelAmount > balanceAmount) {
-            throw new IllegalArgumentException("취소 금액이 남은 금액보다 큽니다. balanceAmount=" + balanceAmount);
+            throw new PgException(ErrorCode.EXCEED_CANCEL_AMOUNT, "취소 금액이 남은 금액보다 큽니다. balanceAmount=" + balanceAmount);
         }
         if (!partialCancelable && cancelAmount < balanceAmount) {
-            throw new NotPartialCancelableException();
+            throw new PgException(ErrorCode.NOT_PARTIAL_CANCELABLE);
         }
     }
 
@@ -129,7 +131,7 @@ public class Payment {
 
     private void changeStatus(PaymentStatus next) {
         if (!status.canTransitionTo(next)) {
-            throw new IllegalStateException(
+            throw new PgException(ErrorCode.INVALID_STATUS,
                     "결제 상태를 " + status + "에서 " + next + "(으)로 바꿀 수 없습니다. paymentKey=" + paymentKey);
         }
         this.status = next;

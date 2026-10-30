@@ -1,72 +1,56 @@
 package com.sangyunpark99.pgserver.common;
 
-import com.sangyunpark99.pgserver.card.CardCompanyUnavailableException;
-import com.sangyunpark99.pgserver.merchant.application.MerchantAuthenticationException;
-import com.sangyunpark99.pgserver.merchant.application.MerchantSuspendedException;
-import com.sangyunpark99.pgserver.payment.application.CardCancelFailedException;
-import com.sangyunpark99.pgserver.payment.application.PaymentNotFoundException;
-import com.sangyunpark99.pgserver.payment.domain.NotPartialCancelableException;
+import com.sangyunpark99.pgserver.common.exception.ErrorCode;
+import com.sangyunpark99.pgserver.common.exception.PgException;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
+@Slf4j
 @RestControllerAdvice
 public class GlobalExceptionHandler {
     public record ErrorResponse(String code, String message) {}
 
-    @ExceptionHandler(MerchantAuthenticationException.class)
-    public ResponseEntity<ErrorResponse> unauthorized(MerchantAuthenticationException e) {
-        return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                .body(new ErrorResponse("UNAUTHORIZED_KEY", e.getMessage()));
-    }
-
-    @ExceptionHandler(MerchantSuspendedException.class)
-    public ResponseEntity<ErrorResponse> suspended(MerchantSuspendedException e) {
-        return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                .body(new ErrorResponse("FORBIDDEN_MERCHANT", e.getMessage()));
-    }
-
-    @ExceptionHandler(PaymentNotFoundException.class)
-    public ResponseEntity<ErrorResponse> notFound(PaymentNotFoundException e) {
-        return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                .body(new ErrorResponse("NOT_FOUND_PAYMENT", e.getMessage()));
-    }
-
-    @ExceptionHandler(NotPartialCancelableException.class)
-    public ResponseEntity<ErrorResponse> notPartialCancelable(NotPartialCancelableException e) {
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                .body(new ErrorResponse("NOT_PARTIAL_CANCELABLE", e.getMessage()));
-    }
-
-    @ExceptionHandler(CardCancelFailedException.class)
-    public ResponseEntity<ErrorResponse> cancelFailed(CardCancelFailedException e) {
-        return ResponseEntity.status(HttpStatus.CONFLICT)
-                .body(new ErrorResponse("CANCEL_FAILED", "[" + e.getFailureCode() + "] " + e.getMessage()));
-    }
-
-    @ExceptionHandler(CardCompanyUnavailableException.class)
-    public ResponseEntity<ErrorResponse> cardUnavailable(CardCompanyUnavailableException e) {
-        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
-                .body(new ErrorResponse("CARD_COMPANY_UNAVAILABLE", "카드사 응답을 받지 못했습니다. 결제 상태를 조회해 확인해 주세요."));
-    }
-
-    @ExceptionHandler(IllegalArgumentException.class)
-    public ResponseEntity<ErrorResponse> badRequest(IllegalArgumentException e) {
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                .body(new ErrorResponse("INVALID_REQUEST", e.getMessage()));
-    }
-
-    @ExceptionHandler(IllegalStateException.class)
-    public ResponseEntity<ErrorResponse> conflict(IllegalStateException e) {
-        return ResponseEntity.status(HttpStatus.CONFLICT)
-                .body(new ErrorResponse("INVALID_STATUS", e.getMessage()));
+    @ExceptionHandler(PgException.class)
+    public ResponseEntity<ErrorResponse> handlePgException(PgException e) {
+        ErrorCode code = e.getErrorCode();
+        if (code.getStatus().is5xxServerError()) {
+            log.warn("[{}] {}", code.name(), e.getMessage(), e);
+        }
+        return ResponseEntity.status(code.getStatus())
+                .body(new ErrorResponse(code.name(), e.getMessage()));
     }
 
     @ExceptionHandler(DataIntegrityViolationException.class)
-    public ResponseEntity<ErrorResponse> duplicate(DataIntegrityViolationException e) {
-        return ResponseEntity.status(HttpStatus.CONFLICT)
-                .body(new ErrorResponse("DUPLICATED", "이미 존재하는 결제입니다."));
+    public ResponseEntity<ErrorResponse> handleDuplicate(DataIntegrityViolationException e) {
+        return toResponse(ErrorCode.DUPLICATED);
+    }
+
+    @ExceptionHandler({HttpMessageNotReadableException.class, MethodArgumentTypeMismatchException.class})
+    public ResponseEntity<ErrorResponse> handleBadInput(Exception e) {
+        return toResponse(ErrorCode.INVALID_REQUEST);
+    }
+
+    @ExceptionHandler(Exception.class)
+    public ResponseEntity<ErrorResponse> handleUnexpected(Exception e) {
+        if (e instanceof org.springframework.web.ErrorResponse springError) {
+            HttpStatusCode status = springError.getStatusCode();
+            HttpStatus resolved = HttpStatus.resolve(status.value());
+            String code = resolved != null ? resolved.name() : ErrorCode.INVALID_REQUEST.name();
+            return ResponseEntity.status(status).body(new ErrorResponse(code, e.getMessage()));
+        }
+        log.error("예상하지 못한 예외", e);
+        return toResponse(ErrorCode.INTERNAL_ERROR);
+    }
+
+    private ResponseEntity<ErrorResponse> toResponse(ErrorCode code) {
+        return ResponseEntity.status(code.getStatus())
+                .body(new ErrorResponse(code.name(), code.getMessage()));
     }
 }

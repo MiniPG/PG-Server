@@ -1,5 +1,7 @@
 package com.sangyunpark99.pgserver.payment.application;
 
+import com.sangyunpark99.pgserver.common.exception.ErrorCode;
+import com.sangyunpark99.pgserver.common.exception.PgException;
 import com.sangyunpark99.pgserver.payment.domain.PaymentTransaction;
 import com.sangyunpark99.pgserver.payment.infrastructure.PaymentTransactionRepository;
 import lombok.RequiredArgsConstructor;
@@ -21,14 +23,14 @@ public class TransactionService {
     @Transactional(readOnly = true)
     public List<PaymentTransaction> search(TransactionSearchCommand command) {
         if (command.startDate() == null || command.endDate() == null) {
-            throw new IllegalArgumentException("startDate와 endDate는 필수입니다.");
+            throw new PgException(ErrorCode.INVALID_PERIOD, "startDate와 endDate는 필수입니다.");
         }
         if (command.startDate().isAfter(command.endDate())) {
-            throw new IllegalArgumentException("startDate는 endDate보다 늦을 수 없습니다.");
+            throw new PgException(ErrorCode.INVALID_PERIOD, "startDate는 endDate보다 늦을 수 없습니다.");
         }
         int limit = command.limit() == null ? DEFAULT_LIMIT : command.limit();
         if (limit < 1 || limit > MAX_LIMIT) {
-            throw new IllegalArgumentException("limit은 1 이상 " + MAX_LIMIT + " 이하여야 합니다.");
+            throw new PgException(ErrorCode.INVALID_LIMIT, "limit은 1 이상 " + MAX_LIMIT + " 이하여야 합니다.");
         }
 
         long afterId = command.startingAfter() == null ? 0L : cursorId(command.mId(), command.startingAfter());
@@ -42,6 +44,6 @@ public class TransactionService {
         return transactionRepository.findByTransactionKey(transactionKey)
                 .filter(tx -> tx.getMId().equals(mId))
                 .map(PaymentTransaction::getId)
-                .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 startingAfter입니다."));
+                .orElseThrow(() -> new PgException(ErrorCode.INVALID_CURSOR));
     }
 }

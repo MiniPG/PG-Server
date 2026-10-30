@@ -1,5 +1,6 @@
 package com.sangyunpark99.pgserver.card;
 
+import com.sangyunpark99.pgserver.common.exception.CardCompanyUnavailableException;
 import org.springframework.http.MediaType;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;

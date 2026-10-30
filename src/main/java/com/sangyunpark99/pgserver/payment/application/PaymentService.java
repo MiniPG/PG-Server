@@ -1,9 +1,12 @@
 package com.sangyunpark99.pgserver.payment.application;
 
+import com.sangyunpark99.pgserver.common.exception.CardCancelFailedException;
+import com.sangyunpark99.pgserver.common.exception.CardCompanyUnavailableException;
+import com.sangyunpark99.pgserver.common.exception.ErrorCode;
+import com.sangyunpark99.pgserver.common.exception.PgException;
 import com.sangyunpark99.pgserver.card.CardApprovalResult;
 import com.sangyunpark99.pgserver.card.CardCancelResult;
 import com.sangyunpark99.pgserver.card.CardCompanyClient;
-import com.sangyunpark99.pgserver.card.CardCompanyUnavailableException;
 import com.sangyunpark99.pgserver.payment.domain.CardInfo;
 import com.sangyunpark99.pgserver.payment.domain.Payment;
 import com.sangyunpark99.pgserver.payment.domain.PaymentStatus;
@@ -48,7 +51,7 @@ public class PaymentService {
     @Transactional(readOnly = true)
     public Payment getByOrderId(String mId, String orderId) {
         return paymentRepository.findByMerchantAndOrderId(mId, orderId)
-                .orElseThrow(PaymentNotFoundException::new);
+                .orElseThrow(() -> new PgException(ErrorCode.NOT_FOUND_PAYMENT));
     }
 
     @Transactional(noRollbackFor = CardCompanyUnavailableException.class)
@@ -80,7 +83,7 @@ public class PaymentService {
         Payment payment = findOwned(command.mId(), command.paymentKey());
 
         if (command.cancelReason() == null || command.cancelReason().isBlank()) {
-            throw new IllegalArgumentException("취소 사유는 필수입니다.");
+            throw new PgException(ErrorCode.CANCEL_REASON_REQUIRED);
         }
         long cancelAmount = command.cancelAmount() == null ? payment.getBalanceAmount() : command.cancelAmount();
         payment.validateCancel(cancelAmount);
@@ -110,22 +113,22 @@ public class PaymentService {
     private Payment findOwned(String mId, String paymentKey) {
         return paymentRepository.findByPaymentKey(paymentKey)
                 .filter(payment -> payment.getMId().equals(mId))
-                .orElseThrow(PaymentNotFoundException::new);
+                .orElseThrow(() -> new PgException(ErrorCode.NOT_FOUND_PAYMENT));
     }
 
     private void verify(Payment payment, ConfirmPaymentCommand command) {
         if (!payment.getOrderId().equals(command.orderId())) {
-            throw new IllegalArgumentException("주문 번호가 일치하지 않습니다.");
+            throw new PgException(ErrorCode.ORDER_ID_MISMATCH);
         }
         if (payment.getTotalAmount() != command.amount()) {
-            throw new IllegalArgumentException("결제 금액이 일치하지 않습니다.");
+            throw new PgException(ErrorCode.AMOUNT_MISMATCH);
         }
 
         if (payment.getStatus() != PaymentStatus.IN_PROGRESS) {
-            throw new IllegalStateException("승인할 수 없는 상태입니다. status=" + payment.getStatus());
+            throw new PgException(ErrorCode.INVALID_STATUS, "승인할 수 없는 상태입니다. status=" + payment.getStatus());
         }
         if (payment.isExpired(LocalDateTime.now())) {
-            throw new IllegalStateException("결제 가능 시간(30분)이 지났습니다.");
+            throw new PgException(ErrorCode.PAYMENT_EXPIRED);
         }
     }
 

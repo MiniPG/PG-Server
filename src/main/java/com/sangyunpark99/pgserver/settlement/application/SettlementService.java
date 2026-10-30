@@ -1,5 +1,7 @@
 package com.sangyunpark99.pgserver.settlement.application;
 
+import com.sangyunpark99.pgserver.common.exception.ErrorCode;
+import com.sangyunpark99.pgserver.common.exception.PgException;
 import com.sangyunpark99.pgserver.payment.infrastructure.MerchantTransactionSummary;
 import com.sangyunpark99.pgserver.payment.infrastructure.PaymentTransactionRepository;
 import com.sangyunpark99.pgserver.settlement.domain.Settlement;
@@ -43,10 +45,10 @@ public class SettlementService {
     @Transactional(readOnly = true)
     public List<Settlement> find(String mId, LocalDate startDate, LocalDate endDate) {
         if (startDate == null || endDate == null) {
-            throw new IllegalArgumentException("startDate와 endDate는 필수입니다.");
+            throw new PgException(ErrorCode.INVALID_PERIOD, "startDate와 endDate는 필수입니다.");
         }
         if (startDate.isAfter(endDate)) {
-            throw new IllegalArgumentException("startDate는 endDate보다 늦을 수 없습니다.");
+            throw new PgException(ErrorCode.INVALID_PERIOD, "startDate는 endDate보다 늦을 수 없습니다.");
         }
         return settlementRepository.findByMerchantAndPeriod(mId, startDate, endDate);
     }
