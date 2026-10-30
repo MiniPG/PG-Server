@@ -32,4 +32,16 @@ public class PaymentController {
         );
         return PaymentResponse.from(payment);
     }
+
+    @GetMapping("/{paymentKey}")
+    public PaymentResponse getByPaymentKey(@RequestHeader(MERCHANT_HEADER) String mId,
+                                           @PathVariable String paymentKey) {
+        return PaymentResponse.from(paymentService.getByPaymentKey(mId, paymentKey));
+    }
+
+    @GetMapping("/orders/{orderId}")
+    public PaymentResponse getByOrderId(@RequestHeader(MERCHANT_HEADER) String mId,
+                                        @PathVariable String orderId) {
+        return PaymentResponse.from(paymentService.getByOrderId(mId, orderId));
+    }
 }

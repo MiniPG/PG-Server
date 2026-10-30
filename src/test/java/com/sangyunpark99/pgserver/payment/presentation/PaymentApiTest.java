@@ -32,6 +32,7 @@ import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -168,20 +169,23 @@ class PaymentApiTest {
         }
 
         @Test
-        @DisplayName("다른 가맹점의 결제를 승인하려 하면 400")
+        @DisplayName("다른 가맹점의 결제를 승인하려 하면 404")
         void otherMerchant() throws Exception {
             String orderId = newOrderId();
             String paymentKey = createAndGetKey(orderId, 15_000);
 
             confirm("m_other", paymentKey, orderId, 15_000)
-                    .andExpect(status().isBadRequest());
+                    .andExpect(status().isNotFound());
+
+            verify(cardCompanyClient, never()).approve(anyString(), anyLong());
         }
 
         @Test
-        @DisplayName("없는 paymentKey면 400")
+        @DisplayName("없는 paymentKey면 404")
         void notFound() throws Exception {
             confirm(MERCHANT, "pk_not_exist", newOrderId(), 15_000)
-                    .andExpect(status().isBadRequest());
+                    .andExpect(status().isNotFound())
+                    .andExpect(jsonPath("$.code").value("NOT_FOUND_PAYMENT"));
         }
 
         @Test
@@ -210,6 +214,75 @@ class PaymentApiTest {
                     .andExpect(status().isConflict());
 
             verify(cardCompanyClient, never()).approve(anyString(), anyLong());
+        }
+    }
+
+    @Nested
+    @DisplayName("GET /v1/payments (결제 조회)")
+    class Get {
+
+        @Test
+        @DisplayName("paymentKey로 조회한다")
+        void byPaymentKey() throws Exception {
+            String orderId = newOrderId();
+            String paymentKey = createAndGetKey(orderId, 15_000);
+
+            mockMvc.perform(get("/v1/payments/{paymentKey}", paymentKey).header("X-Merchant-Id", MERCHANT))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.paymentKey").value(paymentKey))
+                    .andExpect(jsonPath("$.orderId").value(orderId))
+                    .andExpect(jsonPath("$.status").value("IN_PROGRESS"));
+        }
+
+        @Test
+        @DisplayName("orderId로 조회한다")
+        void byOrderId() throws Exception {
+            String orderId = newOrderId();
+            String paymentKey = createAndGetKey(orderId, 15_000);
+
+            mockMvc.perform(get("/v1/payments/orders/{orderId}", orderId).header("X-Merchant-Id", MERCHANT))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.paymentKey").value(paymentKey));
+        }
+
+        @Test
+        @DisplayName("승인 후 조회하면 DONE")
+        void afterConfirm() throws Exception {
+            String orderId = newOrderId();
+            String paymentKey = createAndGetKey(orderId, 15_000);
+            confirm(MERCHANT, paymentKey, orderId, 15_000).andExpect(status().isOk());
+
+            mockMvc.perform(get("/v1/payments/{paymentKey}", paymentKey).header("X-Merchant-Id", MERCHANT))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.status").value("DONE"))
+                    .andExpect(jsonPath("$.approvedAt").exists());
+        }
+
+        @Test
+        @DisplayName("없는 paymentKey면 404")
+        void notFound() throws Exception {
+            mockMvc.perform(get("/v1/payments/{paymentKey}", "pk_not_exist").header("X-Merchant-Id", MERCHANT))
+                    .andExpect(status().isNotFound())
+                    .andExpect(jsonPath("$.code").value("NOT_FOUND_PAYMENT"));
+        }
+
+        @Test
+        @DisplayName("다른 가맹점의 결제는 404 (존재 여부를 알려주지 않는다)")
+        void otherMerchant_byPaymentKey() throws Exception {
+            String paymentKey = createAndGetKey(newOrderId(), 15_000);
+
+            mockMvc.perform(get("/v1/payments/{paymentKey}", paymentKey).header("X-Merchant-Id", "m_other"))
+                    .andExpect(status().isNotFound());
+        }
+
+        @Test
+        @DisplayName("다른 가맹점의 orderId로 조회하면 404")
+        void otherMerchant_byOrderId() throws Exception {
+            String orderId = newOrderId();
+            createAndGetKey(orderId, 15_000);
+
+            mockMvc.perform(get("/v1/payments/orders/{orderId}", orderId).header("X-Merchant-Id", "m_other"))
+                    .andExpect(status().isNotFound());
         }
     }
 
