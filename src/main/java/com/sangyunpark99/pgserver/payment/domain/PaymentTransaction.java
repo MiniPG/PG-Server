@@ -7,11 +7,6 @@ import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
 
-/**
- * 결제에서 돈이 움직인 기록 (승인, 취소).
- * 금액은 항상 양수로 저장하고, 방향은 type으로 구분한다.
- * 부호가 필요한 계산은 signedAmount() 한 곳에서만 한다.
- */
 @Entity
 @Table(
         name = "payment_transaction",
@@ -21,7 +16,6 @@ import java.time.LocalDateTime;
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class PaymentTransaction {
-
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
@@ -73,7 +67,6 @@ public class PaymentTransaction {
         this.status = TransactionStatus.FAILED;
     }
 
-    // 승인은 +, 취소는 −.
     public long signedAmount() {
         return type == TransactionType.APPROVE ? amount : -amount;
     }

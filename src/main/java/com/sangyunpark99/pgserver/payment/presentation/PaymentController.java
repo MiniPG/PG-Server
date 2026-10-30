@@ -11,8 +11,6 @@ import org.springframework.web.bind.annotation.*;
 @RequestMapping("/v1/payments")
 @RequiredArgsConstructor
 public class PaymentController {
-
-    /** 가맹점 식별 헤더. 지금은 단순하게 mId만 받고, 시크릿 키 인증은 나중에 추가한다. */
     public static final String MERCHANT_HEADER = "X-Merchant-Id";
 
     private final PaymentService paymentService;

@@ -19,7 +19,6 @@ import java.time.LocalDateTime;
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class Payment {
-
     public static final Duration VALID_DURATION = Duration.ofMinutes(30);
 
     @Id
@@ -41,7 +40,6 @@ public class Payment {
     @Column(name = "total_amount", nullable = false)
     private long totalAmount;
 
-    /** 취소할 수 있는 남은 금액. 부분 취소를 대비해 둔다. */
     @Column(name = "balance_amount", nullable = false)
     private long balanceAmount;
 
@@ -67,7 +65,6 @@ public class Payment {
     @Column(name = "failure_message", length = 510)
     private String failureMessage;
 
-    /** 결제 생성 현 프로젝트에서는 인증까지 끝난 것으로 보고 IN_PROGRESS로 시작한다. */
     public static Payment create(String paymentKey, String orderId, String orderName,
                                  String mId, long totalAmount, LocalDateTime requestedAt) {
         if (totalAmount <= 0) {
@@ -80,7 +77,7 @@ public class Payment {
         p.mId = mId;
         p.totalAmount = totalAmount;
         p.balanceAmount = totalAmount;
-        p.partialCancelable = false;   // 부분 취소는 아직 지원하지 않음
+        p.partialCancelable = false;
         p.status = PaymentStatus.IN_PROGRESS;
         p.requestedAt = requestedAt;
         return p;

@@ -5,7 +5,6 @@ import com.sangyunpark99.pgserver.payment.domain.PaymentStatus;
 
 import java.time.LocalDateTime;
 
-/** 가맹점에 돌려주는 결제 응답. 취소 내역(cancels)은 취소 API를 만들 때 PaymentTransaction에서 채운다. */
 public record PaymentResponse(
         String paymentKey,
         String orderId,
