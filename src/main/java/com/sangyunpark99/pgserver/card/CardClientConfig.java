@@ -1,5 +1,7 @@
 package com.sangyunpark99.pgserver.card;
 
+import com.sangyunpark99.pgserver.common.web.RequestIdFilter;
+import org.slf4j.MDC;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -23,6 +25,13 @@ public class CardClientConfig {
         return builder
                 .baseUrl(properties.baseUrl())
                 .requestFactory(requestFactory)
+                .requestInterceptor((request, body, execution) -> {
+                    String requestId = MDC.get(RequestIdFilter.MDC_REQUEST_ID);
+                    if (requestId != null) {
+                        request.getHeaders().set(RequestIdFilter.HEADER, requestId);
+                    }
+                    return execution.execute(request, body);
+                })
                 .build();
     }
 
