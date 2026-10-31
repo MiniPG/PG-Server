@@ -28,6 +28,7 @@ public class PaymentService {
     private final PaymentRepository paymentRepository;
     private final PaymentTransactionRepository transactionRepository;
     private final CardCompanyClient cardCompanyClient;
+    private final PaymentMetrics metrics;
 
     @Transactional
     public Payment create(CreatePaymentCommand command) {
@@ -66,14 +67,22 @@ public class PaymentService {
         );
         transactionRepository.save(tx);
 
-        CardApprovalResult result = cardCompanyClient.approve(tx.getTransactionKey(), payment.getPaymentKey(), payment.getTotalAmount());
+        CardApprovalResult result;
+        try {
+            result = cardCompanyClient.approve(tx.getTransactionKey(), payment.getPaymentKey(), payment.getTotalAmount());
+        } catch (CardCompanyUnavailableException e) {
+            metrics.approve(PaymentMetrics.UNAVAILABLE);
+            throw e;
+        }
 
         if (result.approved()) {
             payment.approve(new CardInfo(result.issuerCode(), result.maskedNumber(), result.approveNo()), LocalDateTime.now());
             tx.complete(LocalDateTime.now());
+            metrics.approve(PaymentMetrics.APPROVED);
         } else {
             payment.abort(result.failureCode(), result.failureMessage());
             tx.fail(LocalDateTime.now());
+            metrics.approve(PaymentMetrics.REJECTED);
         }
         return payment;
     }
@@ -94,14 +103,22 @@ public class PaymentService {
         );
         transactionRepository.save(tx);
 
-        CardCancelResult result = cardCompanyClient.cancel(tx.getTransactionKey(), payment.getCard().getApproveNo(), cancelAmount);
+        CardCancelResult result;
+        try {
+            result = cardCompanyClient.cancel(tx.getTransactionKey(), payment.getCard().getApproveNo(), cancelAmount);
+        } catch (CardCompanyUnavailableException e) {
+            metrics.cancel(PaymentMetrics.UNAVAILABLE);
+            throw e;
+        }
 
         if (!result.canceled()) {
             tx.fail(LocalDateTime.now());
+            metrics.cancel(PaymentMetrics.REJECTED);
             throw new CardCancelFailedException(result.failureCode(), result.failureMessage());
         }
         payment.cancel(cancelAmount);
         tx.complete(LocalDateTime.now());
+        metrics.cancel(PaymentMetrics.CANCELED);
         return payment;
     }
 
