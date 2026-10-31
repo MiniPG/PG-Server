@@ -48,6 +48,7 @@ logging:
   structured:
     format:
       file: logstash
+
   logback:
     rollingpolicy:
       max-file-size: 50MB
