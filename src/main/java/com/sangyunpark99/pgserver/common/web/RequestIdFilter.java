@@ -27,9 +27,9 @@ public class RequestIdFilter extends OncePerRequestFilter {
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
             throws ServletException, IOException {
         String requestId = resolve(request.getHeader(HEADER));
-        MDC.put(MDC_REQUEST_ID, requestId);
-        response.setHeader(HEADER, requestId);
         try {
+            MDC.put(MDC_REQUEST_ID, requestId);
+            response.setHeader(HEADER, requestId);
             chain.doFilter(request, response);
         } finally {
             MDC.remove(MDC_REQUEST_ID);
