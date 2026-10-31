@@ -97,6 +97,37 @@ class PaymentApiTest {
         }
 
         @Test
+        @DisplayName("orderId가 없으면 400 INVALID_REQUEST (DUPLICATED로 응답하던 문제)")
+        void missingOrderId() throws Exception {
+            createRaw("""
+                    {"orderName":"티셔츠","amount":10000}
+                    """)
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("INVALID_REQUEST"))
+                    .andExpect(jsonPath("$.message").value("orderId는 필수입니다."));
+        }
+
+        @Test
+        @DisplayName("orderId가 64자를 넘으면 400 INVALID_REQUEST")
+        void tooLongOrderId() throws Exception {
+            create(MERCHANT, "o".repeat(65), 10_000)
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("INVALID_REQUEST"))
+                    .andExpect(jsonPath("$.message").value("orderId는 64자 이하여야 합니다."));
+        }
+
+        @Test
+        @DisplayName("orderName이 100자를 넘으면 400 INVALID_REQUEST")
+        void tooLongOrderName() throws Exception {
+            createRaw("""
+                    {"orderId":"%s","orderName":"%s","amount":10000}
+                    """.formatted(newOrderId(), "n".repeat(101)))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("INVALID_REQUEST"))
+                    .andExpect(jsonPath("$.message").value("orderName은 100자 이하여야 합니다."));
+        }
+
+        @Test
         @DisplayName("같은 가맹점이 같은 orderId로 두 번 만들면 409 (DB unique 제약)")
         void duplicatedOrderId() throws Exception {
             String orderId = newOrderId();
@@ -502,6 +533,13 @@ class PaymentApiTest {
 
     private String newOrderId() {
         return "order-" + UUID.randomUUID();
+    }
+
+    private ResultActions createRaw(String body) throws Exception {
+        return mockMvc.perform(post("/v1/payments")
+                .header(HttpHeaders.AUTHORIZATION, merchants.authorization(MERCHANT))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(body));
     }
 
     private ResultActions create(String mId, String orderId, long amount) throws Exception {

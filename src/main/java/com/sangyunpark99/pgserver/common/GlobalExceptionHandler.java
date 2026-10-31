@@ -4,6 +4,8 @@ import com.sangyunpark99.pgserver.common.exception.ErrorCode;
 import com.sangyunpark99.pgserver.common.exception.PgException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.validation.FieldError;
+import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
@@ -11,6 +13,9 @@ import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+
+import java.util.Locale;
+import java.util.Set;
 
 @Slf4j
 @RestControllerAdvice
@@ -27,9 +32,28 @@ public class GlobalExceptionHandler {
                 .body(new ErrorResponse(code.name(), e.getMessage()));
     }
 
+    // DataIntegrityViolationException은 유니크 제약뿐 아니라 null·길이·외래 키 위반도 포함한다.
+    // 중복으로 의도한 유니크 제약을 위반했을 때만 DUPLICATED로 응답하고, 나머지는 예상하지 못한 오류로 드러낸다.
+    private static final Set<String> DUPLICATE_CONSTRAINTS = Set.of("uk_payment_mid_order_id");
+
     @ExceptionHandler(DataIntegrityViolationException.class)
-    public ResponseEntity<ErrorResponse> handleDuplicate(DataIntegrityViolationException e) {
-        return toResponse(ErrorCode.DUPLICATED);
+    public ResponseEntity<ErrorResponse> handleDataIntegrity(DataIntegrityViolationException e) {
+        String cause = String.valueOf(e.getMostSpecificCause().getMessage()).toLowerCase(Locale.ROOT);
+        if (DUPLICATE_CONSTRAINTS.stream().anyMatch(cause::contains)) {
+            return toResponse(ErrorCode.DUPLICATED);
+        }
+        log.error("예상하지 못한 데이터 무결성 오류", e);
+        return toResponse(ErrorCode.INTERNAL_ERROR);
+    }
+
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    public ResponseEntity<ErrorResponse> handleInvalidArgument(MethodArgumentNotValidException e) {
+        String message = e.getBindingResult().getFieldErrors().stream()
+                .map(FieldError::getDefaultMessage)
+                .findFirst()
+                .orElse(ErrorCode.INVALID_REQUEST.getMessage());
+        return ResponseEntity.status(ErrorCode.INVALID_REQUEST.getStatus())
+                .body(new ErrorResponse(ErrorCode.INVALID_REQUEST.name(), message));
     }
 
     @ExceptionHandler({HttpMessageNotReadableException.class, MethodArgumentTypeMismatchException.class})
