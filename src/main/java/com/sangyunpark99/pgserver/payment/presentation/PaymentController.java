@@ -9,6 +9,8 @@ import com.sangyunpark99.pgserver.merchant.presentation.AuthenticatedMerchant;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
+
 @RestController
 @RequestMapping("/v1/payments")
 @RequiredArgsConstructor
@@ -23,7 +25,8 @@ public class PaymentController {
                 new CreatePaymentCommand(mId, request.orderId(), request.orderName(), request.amount(),
                         request.partialCancelable() == null || request.partialCancelable())
         );
-        return toResponse(payment);
+
+        return PaymentResponse.from(payment, List.of());
     }
 
     @PostMapping("/confirm")
