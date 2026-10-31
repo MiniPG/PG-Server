@@ -1,6 +1,7 @@
 package com.sangyunpark99.pgserver.payment.infrastructure;
 
 import com.sangyunpark99.pgserver.payment.domain.PaymentTransaction;
+import com.sangyunpark99.pgserver.payment.domain.TransactionStatus;
 import com.sangyunpark99.pgserver.payment.domain.TransactionType;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -16,6 +17,8 @@ public interface PaymentTransactionRepository extends JpaRepository<PaymentTrans
     List<PaymentTransaction> findByPaymentKeyAndTypeOrderByIdAsc(String paymentKey, TransactionType type);
 
     Optional<PaymentTransaction> findByTransactionKey(String transactionKey);
+
+    long countByStatus(TransactionStatus status);
 
     @Query("""
             select t from PaymentTransaction t

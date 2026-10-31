@@ -1,5 +1,6 @@
 package com.sangyunpark99.pgserver.payment.application.expiration;
 
+import com.sangyunpark99.pgserver.payment.application.PaymentMetrics;
 import com.sangyunpark99.pgserver.payment.domain.Payment;
 import com.sangyunpark99.pgserver.payment.domain.PaymentStatus;
 import com.sangyunpark99.pgserver.payment.infrastructure.PaymentRepository;
@@ -14,6 +15,7 @@ import java.util.List;
 @RequiredArgsConstructor
 public class PaymentExpirationService {
     private final PaymentRepository paymentRepository;
+    private final PaymentMetrics metrics;
 
     @Transactional
     public int expireOverdue(LocalDateTime now) {
@@ -21,6 +23,7 @@ public class PaymentExpirationService {
                 PaymentStatus.IN_PROGRESS, now.minus(Payment.VALID_DURATION)
         );
         overdue.forEach(Payment::expire);
+        metrics.expired(overdue.size());
         return overdue.size();
     }
 }
