@@ -1,9 +1,11 @@
 package com.sangyunpark99.pgserver.merchant.presentation;
 
+import com.sangyunpark99.pgserver.common.web.RequestIdFilter;
 import com.sangyunpark99.pgserver.merchant.application.MerchantAuthenticator;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
+import org.slf4j.MDC;
 import org.springframework.http.HttpHeaders;
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.HandlerInterceptor;
@@ -19,6 +21,7 @@ public class MerchantAuthInterceptor implements HandlerInterceptor {
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) {
         String mId = authenticator.authenticate(request.getHeader(HttpHeaders.AUTHORIZATION));
         request.setAttribute(MERCHANT_ID_ATTRIBUTE, mId);
+        MDC.put(RequestIdFilter.MDC_MERCHANT_ID, mId);
         return true;
     }
 }

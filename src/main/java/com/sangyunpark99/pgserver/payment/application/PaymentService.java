@@ -15,6 +15,7 @@ import com.sangyunpark99.pgserver.payment.domain.TransactionType;
 import com.sangyunpark99.pgserver.payment.infrastructure.PaymentRepository;
 import com.sangyunpark99.pgserver.payment.infrastructure.PaymentTransactionRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -22,6 +23,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class PaymentService {
@@ -41,7 +43,13 @@ public class PaymentService {
                 command.partialCancelable(),
                 LocalDateTime.now()
         );
-        return paymentRepository.save(payment);
+        paymentRepository.save(payment);
+        log.atInfo().setMessage("결제 생성")
+                .addKeyValue("paymentKey", payment.getPaymentKey())
+                .addKeyValue("orderId", payment.getOrderId())
+                .addKeyValue("amount", payment.getTotalAmount())
+                .log();
+        return payment;
     }
 
     @Transactional(readOnly = true)
@@ -72,6 +80,11 @@ public class PaymentService {
             result = cardCompanyClient.approve(tx.getTransactionKey(), payment.getPaymentKey(), payment.getTotalAmount());
         } catch (CardCompanyUnavailableException e) {
             metrics.approve(PaymentMetrics.UNAVAILABLE);
+            log.atWarn().setMessage("결제 승인 결과 모름: 카드사 응답 없음")
+                    .addKeyValue("paymentKey", payment.getPaymentKey())
+                    .addKeyValue("transactionKey", tx.getTransactionKey())
+                    .addKeyValue("cause", e.getCause() == null ? e.getMessage() : e.getCause().toString())
+                    .log();
             throw e;
         }
 
@@ -79,10 +92,21 @@ public class PaymentService {
             payment.approve(new CardInfo(result.issuerCode(), result.maskedNumber(), result.approveNo()), LocalDateTime.now());
             tx.complete(LocalDateTime.now());
             metrics.approve(PaymentMetrics.APPROVED);
+            log.atInfo().setMessage("결제 승인")
+                    .addKeyValue("paymentKey", payment.getPaymentKey())
+                    .addKeyValue("transactionKey", tx.getTransactionKey())
+                    .addKeyValue("result", PaymentMetrics.APPROVED)
+                    .log();
         } else {
             payment.abort(result.failureCode(), result.failureMessage());
             tx.fail(LocalDateTime.now());
             metrics.approve(PaymentMetrics.REJECTED);
+            log.atInfo().setMessage("결제 승인 거절")
+                    .addKeyValue("paymentKey", payment.getPaymentKey())
+                    .addKeyValue("transactionKey", tx.getTransactionKey())
+                    .addKeyValue("result", PaymentMetrics.REJECTED)
+                    .addKeyValue("failureCode", result.failureCode())
+                    .log();
         }
         return payment;
     }
@@ -108,17 +132,35 @@ public class PaymentService {
             result = cardCompanyClient.cancel(tx.getTransactionKey(), payment.getCard().getApproveNo(), cancelAmount);
         } catch (CardCompanyUnavailableException e) {
             metrics.cancel(PaymentMetrics.UNAVAILABLE);
+            log.atWarn().setMessage("결제 취소 결과 모름: 카드사 응답 없음")
+                    .addKeyValue("paymentKey", payment.getPaymentKey())
+                    .addKeyValue("transactionKey", tx.getTransactionKey())
+                    .addKeyValue("cancelAmount", cancelAmount)
+                    .addKeyValue("cause", e.getCause() == null ? e.getMessage() : e.getCause().toString())
+                    .log();
             throw e;
         }
 
         if (!result.canceled()) {
             tx.fail(LocalDateTime.now());
             metrics.cancel(PaymentMetrics.REJECTED);
+            log.atInfo().setMessage("결제 취소 거절")
+                    .addKeyValue("paymentKey", payment.getPaymentKey())
+                    .addKeyValue("transactionKey", tx.getTransactionKey())
+                    .addKeyValue("cancelAmount", cancelAmount)
+                    .addKeyValue("failureCode", result.failureCode())
+                    .log();
             throw new CardCancelFailedException(result.failureCode(), result.failureMessage());
         }
         payment.cancel(cancelAmount);
         tx.complete(LocalDateTime.now());
         metrics.cancel(PaymentMetrics.CANCELED);
+        log.atInfo().setMessage("결제 취소")
+                .addKeyValue("paymentKey", payment.getPaymentKey())
+                .addKeyValue("transactionKey", tx.getTransactionKey())
+                .addKeyValue("cancelAmount", cancelAmount)
+                .addKeyValue("balanceAmount", payment.getBalanceAmount())
+                .log();
         return payment;
     }
 
