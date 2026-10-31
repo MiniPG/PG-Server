@@ -6,6 +6,7 @@ import com.sangyunpark99.pgserver.payment.application.CreatePaymentCommand;
 import com.sangyunpark99.pgserver.payment.application.PaymentService;
 import com.sangyunpark99.pgserver.payment.domain.Payment;
 import com.sangyunpark99.pgserver.merchant.presentation.AuthenticatedMerchant;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
@@ -20,7 +21,7 @@ public class PaymentController {
 
     @PostMapping
     public PaymentResponse create(@AuthenticatedMerchant String mId,
-                                  @RequestBody CreatePaymentRequest request) {
+                                  @Valid @RequestBody CreatePaymentRequest request) {
         Payment payment = paymentService.create(
                 new CreatePaymentCommand(mId, request.orderId(), request.orderName(), request.amount(),
                         request.partialCancelable() == null || request.partialCancelable())
