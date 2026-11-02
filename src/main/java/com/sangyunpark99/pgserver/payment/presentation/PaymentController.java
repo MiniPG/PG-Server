@@ -36,7 +36,8 @@ public class PaymentController {
         Payment payment = paymentService.confirm(
                 new ConfirmPaymentCommand(mId, request.paymentKey(), request.orderId(), request.amount())
         );
-        return toResponse(payment);
+
+        return PaymentResponse.from(payment, List.of());
     }
 
     @GetMapping("/{paymentKey}")
