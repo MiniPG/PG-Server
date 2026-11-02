@@ -170,8 +170,7 @@ public class PaymentService {
     }
 
     private Payment findOwned(String mId, String paymentKey) {
-        return paymentRepository.findByPaymentKey(paymentKey)
-                .filter(payment -> payment.getMId().equals(mId))
+        return paymentRepository.findByMerchantAndPaymentKey(mId, paymentKey)
                 .orElseThrow(() -> new PgException(ErrorCode.NOT_FOUND_PAYMENT));
     }
 
