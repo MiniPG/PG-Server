@@ -7,6 +7,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import com.sangyunpark99.pgserver.support.TestMerchants;
+import com.sangyunpark99.pgserver.payment.domain.PaymentTransaction;
+import com.sangyunpark99.pgserver.payment.domain.TransactionType;
+import com.sangyunpark99.pgserver.payment.infrastructure.PaymentTransactionRepository;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
@@ -27,6 +30,7 @@ class TransactionApiTest {
 
     @Autowired MockMvc mockMvc;
     @Autowired TestMerchants merchants;
+    @Autowired PaymentTransactionRepository transactionRepository;
 
     private final LocalDateTime now = LocalDateTime.now().truncatedTo(ChronoUnit.SECONDS);
 
@@ -77,6 +81,36 @@ class TransactionApiTest {
         String mId = newMerchant();
         for (int i = 1; i <= 5; i++) {
             approve(mId, i * 1_000);
+        }
+
+        String first = search(mId, now.minusHours(1), now.plusHours(1), null, 2)
+                .andExpect(jsonPath("$.length()").value(2))
+                .andExpect(jsonPath("$[0].amount").value(1_000))
+                .andExpect(jsonPath("$[1].amount").value(2_000))
+                .andReturn().getResponse().getContentAsString();
+        String cursor = JsonPath.read(first, "$[1].transactionKey");
+
+        String second = search(mId, now.minusHours(1), now.plusHours(1), cursor, 2)
+                .andExpect(jsonPath("$.length()").value(2))
+                .andExpect(jsonPath("$[0].amount").value(3_000))
+                .andExpect(jsonPath("$[1].amount").value(4_000))
+                .andReturn().getResponse().getContentAsString();
+        cursor = JsonPath.read(second, "$[1].transactionKey");
+
+        search(mId, now.minusHours(1), now.plusHours(1), cursor, 2)
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].amount").value(5_000));
+    }
+
+    @Test
+    @DisplayName("같은 시각의 거래가 페이지 경계에 걸려도 빠지거나 겹치지 않는다")
+    void sameTransactedAtOnPageBoundary() throws Exception {
+        String mId = newMerchant();
+        LocalDateTime sameTime = now.minusMinutes(10);
+        for (int i = 1; i <= 5; i++) {
+            transactionRepository.save(PaymentTransaction.request(
+                    "tx_" + UUID.randomUUID(), "pay_" + UUID.randomUUID(), mId,
+                    TransactionType.APPROVE, i * 1_000, null, sameTime));
         }
 
         String first = search(mId, now.minusHours(1), now.plusHours(1), null, 2)
