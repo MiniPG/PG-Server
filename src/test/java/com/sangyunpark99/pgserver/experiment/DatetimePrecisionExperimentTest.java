@@ -24,12 +24,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
-/**
- * 실험: 나노초까지 가진 LocalDateTime이 MySQL DATETIME(6)에 어떻게 저장되고, 어느 날 정산에 들어가는지 확인한다.
- * 로컬 MySQL(pg-mysql)이 떠 있어야 하고, 환경 변수가 있을 때만 실행된다.
- *   PG_EXPERIMENT=datetime-precision ./gradlew test --tests '*DatetimePrecisionExperimentTest' --rerun
- * 결과: build/experiments/datetime-precision-result.txt
- */
 @SpringBootTest(properties = {
         "spring.datasource.url=jdbc:mysql://localhost:3306/pg?serverTimezone=Asia/Seoul",
         "spring.datasource.username=root",
