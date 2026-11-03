@@ -3,6 +3,7 @@ package com.sangyunpark99.pgserver.payment.infrastructure;
 import com.sangyunpark99.pgserver.payment.domain.Payment;
 import com.sangyunpark99.pgserver.payment.domain.PaymentStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -23,4 +24,10 @@ public interface PaymentRepository extends JpaRepository<Payment, Long> {
     @Query("select p from Payment p where p.status = :status and p.requestedAt < :deadline")
     List<Payment> findByStatusAndRequestedAtBefore(@Param("status") PaymentStatus status,
                                                    @Param("deadline") LocalDateTime deadline);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("update Payment p set p.status = :next where p.id = :id and p.status = :current")
+    int changeStatusIf(@Param("id") Long id,
+                       @Param("current") PaymentStatus current,
+                       @Param("next") PaymentStatus next);
 }

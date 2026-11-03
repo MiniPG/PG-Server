@@ -19,6 +19,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.util.List;
 import java.util.UUID;
@@ -32,6 +33,7 @@ public class PaymentService {
     private final CardCompanyClient cardCompanyClient;
     private final PaymentMetrics metrics;
     private final TimeProvider timeProvider;
+    private final TransactionTemplate transactionTemplate;
 
     @Transactional
     public Payment create(CreatePaymentCommand command) {
@@ -64,30 +66,46 @@ public class PaymentService {
                 .orElseThrow(() -> new PgException(ErrorCode.NOT_FOUND_PAYMENT));
     }
 
-    @Transactional(noRollbackFor = CardCompanyUnavailableException.class)
     public Payment confirm(ConfirmPaymentCommand command) {
-        Payment payment = findOwned(command.mId(), command.paymentKey());
+        ApprovalRequest request = transactionTemplate.execute(status -> startApproval(command));
 
+        CardApprovalResult result;
+        try {
+            result = cardCompanyClient.approve(request.transactionKey(), request.paymentKey(), request.amount());
+        } catch (CardCompanyUnavailableException e) {
+            metrics.approve(PaymentMetrics.UNAVAILABLE);
+            log.atWarn().setMessage("결제 승인 결과 모름: 카드사 응답 없음")
+                    .addKeyValue("paymentKey", request.paymentKey())
+                    .addKeyValue("transactionKey", request.transactionKey())
+                    .addKeyValue("cause", e.getCause() == null ? e.getMessage() : e.getCause().toString())
+                    .log();
+            throw e;
+        }
+
+        return transactionTemplate.execute(status -> finishApproval(command.mId(), request, result));
+    }
+
+    private ApprovalRequest startApproval(ConfirmPaymentCommand command) {
+        Payment payment = findOwned(command.mId(), command.paymentKey());
         verify(payment, command);
+
+        int claimed = paymentRepository.changeStatusIf(payment.getId(), PaymentStatus.IN_PROGRESS, PaymentStatus.APPROVING);
+        if (claimed == 0) {
+            throw rejectByStatus(findOwned(command.mId(), command.paymentKey()).getStatus());
+        }
 
         PaymentTransaction tx = PaymentTransaction.request(
                 generateTransactionKey(), payment.getPaymentKey(), payment.getMId(), TransactionType.APPROVE,
                 payment.getTotalAmount(), null, timeProvider.now()
         );
         transactionRepository.save(tx);
+        return new ApprovalRequest(payment.getPaymentKey(), tx.getTransactionKey(), payment.getTotalAmount());
+    }
 
-        CardApprovalResult result;
-        try {
-            result = cardCompanyClient.approve(tx.getTransactionKey(), payment.getPaymentKey(), payment.getTotalAmount());
-        } catch (CardCompanyUnavailableException e) {
-            metrics.approve(PaymentMetrics.UNAVAILABLE);
-            log.atWarn().setMessage("결제 승인 결과 모름: 카드사 응답 없음")
-                    .addKeyValue("paymentKey", payment.getPaymentKey())
-                    .addKeyValue("transactionKey", tx.getTransactionKey())
-                    .addKeyValue("cause", e.getCause() == null ? e.getMessage() : e.getCause().toString())
-                    .log();
-            throw e;
-        }
+    private Payment finishApproval(String mId, ApprovalRequest request, CardApprovalResult result) {
+        Payment payment = findOwned(mId, request.paymentKey());
+        PaymentTransaction tx = transactionRepository.findByMerchantAndTransactionKey(mId, request.transactionKey())
+                .orElseThrow(() -> new IllegalStateException("승인 거래가 없습니다. transactionKey=" + request.transactionKey()));
 
         if (result.approved()) {
             payment.approve(new CardInfo(result.issuerCode(), result.maskedNumber(), result.approveNo()), timeProvider.now());
@@ -110,6 +128,9 @@ public class PaymentService {
                     .log();
         }
         return payment;
+    }
+
+    private record ApprovalRequest(String paymentKey, String transactionKey, long amount) {
     }
 
     @Transactional(noRollbackFor = {CardCancelFailedException.class, CardCompanyUnavailableException.class})
@@ -184,11 +205,19 @@ public class PaymentService {
         }
 
         if (payment.getStatus() != PaymentStatus.IN_PROGRESS) {
-            throw new PgException(ErrorCode.INVALID_STATUS, "승인할 수 없는 상태입니다. status=" + payment.getStatus());
+            throw rejectByStatus(payment.getStatus());
         }
         if (payment.isExpired(timeProvider.now())) {
             throw new PgException(ErrorCode.PAYMENT_EXPIRED);
         }
+    }
+
+    private PgException rejectByStatus(PaymentStatus status) {
+        return switch (status) {
+            case APPROVING -> new PgException(ErrorCode.APPROVAL_IN_PROGRESS);
+            case EXPIRED -> new PgException(ErrorCode.PAYMENT_EXPIRED);
+            default -> new PgException(ErrorCode.INVALID_STATUS, "승인할 수 없는 상태입니다. status=" + status);
+        };
     }
 
     private String generateTransactionKey() {

@@ -4,6 +4,7 @@ import com.sangyunpark99.pgserver.common.exception.ErrorCode;
 import com.sangyunpark99.pgserver.common.exception.PgException;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.LocalDateTime;
 
@@ -12,6 +13,11 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class PaymentTest {
     private static final LocalDateTime NOW = LocalDateTime.of(2026, 10, 30, 12, 0);
+
+    private Payment approving(Payment payment) {
+        ReflectionTestUtils.setField(payment, "status", PaymentStatus.APPROVING);
+        return payment;
+    }
 
     private Payment newPayment() {
         return Payment.create("pk_test", "order-1", "티셔츠", "m_test", 15_000, true, NOW);
@@ -37,7 +43,7 @@ class PaymentTest {
     @Test
     @DisplayName("승인하면 DONE이 되고 카드 정보와 승인 시각이 남는다")
     void approve() {
-        Payment payment = newPayment();
+        Payment payment = approving(newPayment());
 
         payment.approve(new CardInfo("11", "1234-****-****-5678", "12345678"), NOW.plusSeconds(1));
 
@@ -49,7 +55,7 @@ class PaymentTest {
     @Test
     @DisplayName("이미 DONE인 결제는 다시 승인할 수 없다")
     void approve_twice() {
-        Payment payment = newPayment();
+        Payment payment = approving(newPayment());
         payment.approve(new CardInfo("11", "1234-****-****-5678", "12345678"), NOW);
 
         assertThatThrownBy(() -> payment.approve(new CardInfo("11", "1234-****-****-5678", "87654321"), NOW))
@@ -60,7 +66,7 @@ class PaymentTest {
     @Test
     @DisplayName("거절되면 ABORTED가 되고 실패 사유가 남는다")
     void abort() {
-        Payment payment = newPayment();
+        Payment payment = approving(newPayment());
 
         payment.abort("REJECT_CARD", "잔액 부족");
 
@@ -71,7 +77,7 @@ class PaymentTest {
     @Test
     @DisplayName("ABORTED는 종료 상태라 승인으로 갈 수 없다")
     void aborted_isTerminal() {
-        Payment payment = newPayment();
+        Payment payment = approving(newPayment());
         payment.abort("REJECT_CARD", "잔액 부족");
 
         assertThatThrownBy(() -> payment.approve(new CardInfo("11", "1234-****-****-5678", "12345678"), NOW))
@@ -89,7 +95,7 @@ class PaymentTest {
     }
 
     private Payment approvedPayment(boolean partialCancelable) {
-        Payment payment = Payment.create("pk_test", "order-1", "티셔츠", "m_test", 10_000, partialCancelable, NOW);
+        Payment payment = approving(Payment.create("pk_test", "order-1", "티셔츠", "m_test", 10_000, partialCancelable, NOW));
         payment.approve(new CardInfo("11", "1234-****-****-5678", "12345678"), NOW);
         return payment;
     }
@@ -184,6 +190,26 @@ class PaymentTest {
     @DisplayName("승인된 결제는 만료시킬 수 없다")
     void expire_afterApprove() {
         Payment payment = approvedPayment(true);
+
+        assertThatThrownBy(payment::expire)
+                .isInstanceOf(PgException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.INVALID_STATUS);
+    }
+
+    @Test
+    @DisplayName("승인 처리 중(APPROVING)을 거치지 않으면 승인할 수 없다")
+    void approve_withoutApproving() {
+        Payment payment = newPayment();
+
+        assertThatThrownBy(() -> payment.approve(new CardInfo("11", "1234-****-****-5678", "12345678"), NOW))
+                .isInstanceOf(PgException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.INVALID_STATUS);
+    }
+
+    @Test
+    @DisplayName("승인 처리 중(APPROVING)인 결제는 만료시킬 수 없다")
+    void expire_whileApproving() {
+        Payment payment = approving(newPayment());
 
         assertThatThrownBy(payment::expire)
                 .isInstanceOf(PgException.class)

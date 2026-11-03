@@ -5,6 +5,7 @@ import java.util.Set;
 
 public enum PaymentStatus {
     IN_PROGRESS,
+    APPROVING,
     DONE,
     ABORTED,
     EXPIRED,
@@ -12,7 +13,8 @@ public enum PaymentStatus {
     CANCELED;
 
     private static final Map<PaymentStatus, Set<PaymentStatus>> ALLOWED = Map.of(
-            IN_PROGRESS, Set.of(DONE, ABORTED, EXPIRED),
+            IN_PROGRESS, Set.of(APPROVING, EXPIRED),
+            APPROVING, Set.of(DONE, ABORTED),
             DONE, Set.of(PARTIAL_CANCELED, CANCELED),
             PARTIAL_CANCELED, Set.of(PARTIAL_CANCELED, CANCELED),
             ABORTED, Set.of(),
