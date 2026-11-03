@@ -33,17 +33,20 @@ public class TransactionService {
             throw new PgException(ErrorCode.INVALID_LIMIT, "limit은 1 이상 " + MAX_LIMIT + " 이하여야 합니다.");
         }
 
-        long afterId = command.startingAfter() == null ? 0L : cursorId(command.mId(), command.startingAfter());
+        PageRequest page = PageRequest.of(0, limit);
+        if (command.startingAfter() == null) {
+            return transactionRepository.findFirstPage(command.mId(), command.startDate(), command.endDate(), page);
+        }
 
-        return transactionRepository.findPage(
-                command.mId(), command.startDate(), command.endDate(), afterId, PageRequest.of(0, limit)
+        PaymentTransaction cursor = findCursor(command.mId(), command.startingAfter());
+        return transactionRepository.findPageAfter(
+                command.mId(), command.startDate(), command.endDate(),
+                cursor.getTransactedAt(), cursor.getId(), page
         );
     }
 
-    private long cursorId(String mId, String transactionKey) {
-        return transactionRepository.findByTransactionKey(transactionKey)
-                .filter(tx -> tx.getMId().equals(mId))
-                .map(PaymentTransaction::getId)
+    private PaymentTransaction findCursor(String mId, String transactionKey) {
+        return transactionRepository.findByMerchantAndTransactionKey(mId, transactionKey)
                 .orElseThrow(() -> new PgException(ErrorCode.INVALID_CURSOR));
     }
 }

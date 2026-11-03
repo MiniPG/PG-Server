@@ -16,7 +16,9 @@ public interface PaymentTransactionRepository extends JpaRepository<PaymentTrans
 
     List<PaymentTransaction> findByPaymentKeyAndTypeOrderByIdAsc(String paymentKey, TransactionType type);
 
-    Optional<PaymentTransaction> findByTransactionKey(String transactionKey);
+    @Query("select t from PaymentTransaction t where t.mId = :mId and t.transactionKey = :transactionKey")
+    Optional<PaymentTransaction> findByMerchantAndTransactionKey(@Param("mId") String mId,
+                                                                 @Param("transactionKey") String transactionKey);
 
     long countByStatus(TransactionStatus status);
 
@@ -25,14 +27,27 @@ public interface PaymentTransactionRepository extends JpaRepository<PaymentTrans
             where t.mId = :mId
               and t.transactedAt >= :startDate
               and t.transactedAt <= :endDate
-              and t.id > :afterId
-            order by t.id asc
+            order by t.transactedAt asc, t.id asc
             """)
-    List<PaymentTransaction> findPage(@Param("mId") String mId,
-                                      @Param("startDate") LocalDateTime startDate,
-                                      @Param("endDate") LocalDateTime endDate,
-                                      @Param("afterId") long afterId,
-                                      Pageable pageable);
+    List<PaymentTransaction> findFirstPage(@Param("mId") String mId,
+                                           @Param("startDate") LocalDateTime startDate,
+                                           @Param("endDate") LocalDateTime endDate,
+                                           Pageable pageable);
+
+    @Query("""
+            select t from PaymentTransaction t
+            where t.mId = :mId
+              and (t.transactedAt > :afterAt or (t.transactedAt = :afterAt and t.id > :afterId))
+              and t.transactedAt >= :startDate
+              and t.transactedAt <= :endDate
+            order by t.transactedAt asc, t.id asc
+            """)
+    List<PaymentTransaction> findPageAfter(@Param("mId") String mId,
+                                           @Param("startDate") LocalDateTime startDate,
+                                           @Param("endDate") LocalDateTime endDate,
+                                           @Param("afterAt") LocalDateTime afterAt,
+                                           @Param("afterId") long afterId,
+                                           Pageable pageable);
 
     @Query("""
             select new com.sangyunpark99.pgserver.payment.infrastructure.MerchantTransactionSummary(
