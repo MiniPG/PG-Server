@@ -22,8 +22,6 @@ public interface PaymentTransactionRepository extends JpaRepository<PaymentTrans
 
     long countByStatus(TransactionStatus status);
 
-    // 정렬·커서 기준을 인덱스 (m_id, transacted_at) 순서와 맞춘다 (id는 보조 인덱스 끝에 붙는 PK)
-    // → 정렬 없이 인덱스에서 커서 위치로 바로 가서 limit만큼만 읽는다
     @Query("""
             select t from PaymentTransaction t
             where t.mId = :mId
