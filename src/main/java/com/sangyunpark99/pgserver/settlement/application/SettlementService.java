@@ -1,5 +1,6 @@
 package com.sangyunpark99.pgserver.settlement.application;
 
+import com.sangyunpark99.pgserver.common.time.TimeProvider;
 import com.sangyunpark99.pgserver.common.exception.ErrorCode;
 import com.sangyunpark99.pgserver.common.exception.PgException;
 import com.sangyunpark99.pgserver.payment.infrastructure.MerchantTransactionSummary;
@@ -21,6 +22,7 @@ public class SettlementService {
     private final SettlementRepository settlementRepository;
     private final PaymentTransactionRepository transactionRepository;
     private final SettlementProperties properties;
+    private final TimeProvider timeProvider;
 
     @Transactional
     public int settle(LocalDate date) {
@@ -28,7 +30,7 @@ public class SettlementService {
                 date.atStartOfDay(), date.plusDays(1).atStartOfDay()
         );
         Set<String> settled = settlementRepository.findSettledMerchantIds(date);
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = timeProvider.now();
 
         List<Settlement> created = summaries.stream()
                 .filter(a -> !settled.contains(a.mId()))
