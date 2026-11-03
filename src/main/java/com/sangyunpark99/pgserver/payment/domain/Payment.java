@@ -102,10 +102,6 @@ public class Payment {
         this.failureMessage = failureMessage;
     }
 
-    public void expire() {
-        changeStatus(PaymentStatus.EXPIRED);
-    }
-
     public void validateCancel(long cancelAmount) {
         if (status != PaymentStatus.DONE && status != PaymentStatus.PARTIAL_CANCELED) {
             throw new PgException(ErrorCode.INVALID_STATUS, "취소할 수 없는 상태입니다. status=" + status);

@@ -142,41 +142,11 @@ class PaymentTest {
     }
 
     @Test
-    @DisplayName("IN_PROGRESS 결제는 만료시킬 수 있다")
-    void expire() {
-        Payment payment = newPayment();
-
-        payment.expire();
-
-        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.EXPIRED);
-    }
-
-    @Test
-    @DisplayName("승인된 결제는 만료시킬 수 없다")
-    void expire_afterApprove() {
-        Payment payment = approvedPayment(true);
-
-        assertThatThrownBy(payment::expire)
-                .isInstanceOf(PgException.class)
-                .extracting("errorCode").isEqualTo(ErrorCode.INVALID_STATUS);
-    }
-
-    @Test
     @DisplayName("승인 처리 중(APPROVING)을 거치지 않으면 승인할 수 없다")
     void approve_withoutApproving() {
         Payment payment = newPayment();
 
         assertThatThrownBy(() -> payment.approve(new CardInfo("11", "1234-****-****-5678", "12345678"), NOW))
-                .isInstanceOf(PgException.class)
-                .extracting("errorCode").isEqualTo(ErrorCode.INVALID_STATUS);
-    }
-
-    @Test
-    @DisplayName("승인 처리 중(APPROVING)인 결제는 만료시킬 수 없다")
-    void expire_whileApproving() {
-        Payment payment = approving(newPayment());
-
-        assertThatThrownBy(payment::expire)
                 .isInstanceOf(PgException.class)
                 .extracting("errorCode").isEqualTo(ErrorCode.INVALID_STATUS);
     }

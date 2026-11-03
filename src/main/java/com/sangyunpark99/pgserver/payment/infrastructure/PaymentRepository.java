@@ -8,7 +8,6 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.LocalDateTime;
-import java.util.List;
 import java.util.Optional;
 
 public interface PaymentRepository extends JpaRepository<Payment, Long> {
@@ -21,9 +20,14 @@ public interface PaymentRepository extends JpaRepository<Payment, Long> {
     @Query("select p from Payment p where p.mId = :mId and p.orderId = :orderId")
     Optional<Payment> findByMerchantAndOrderId(@Param("mId") String mId, @Param("orderId") String orderId);
 
-    @Query("select p from Payment p where p.status = :status and p.requestedAt < :deadline")
-    List<Payment> findByStatusAndRequestedAtBefore(@Param("status") PaymentStatus status,
-                                                   @Param("deadline") LocalDateTime deadline);
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            update Payment p
+            set p.status = com.sangyunpark99.pgserver.payment.domain.PaymentStatus.EXPIRED
+            where p.status = com.sangyunpark99.pgserver.payment.domain.PaymentStatus.IN_PROGRESS
+              and p.requestedAt < :deadline
+            """)
+    int expireOverdue(@Param("deadline") LocalDateTime deadline);
 
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("update Payment p set p.status = :next where p.id = :id and p.status = :current")
