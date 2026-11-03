@@ -138,7 +138,7 @@ class PaymentTest {
 
         assertThatThrownBy(() -> payment.validateCancel(1_000))
                 .isInstanceOf(PgException.class)
-                .extracting("errorCode").isEqualTo(ErrorCode.INVALID_STATUS);
+                .extracting("errorCode").isEqualTo(ErrorCode.ALREADY_CANCELED_PAYMENT);
     }
 
     @Test
