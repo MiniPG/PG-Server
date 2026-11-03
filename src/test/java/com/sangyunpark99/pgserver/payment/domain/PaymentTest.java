@@ -101,77 +101,42 @@ class PaymentTest {
     }
 
     @Test
-    @DisplayName("일부를 취소하면 잔액이 줄고 PARTIAL_CANCELED")
-    void partialCancel() {
+    @DisplayName("남은 금액보다 큰 금액은 취소할 수 없다")
+    void validateCancel_overBalance() {
         Payment payment = approvedPayment(true);
 
-        payment.cancel(3_000);
-
-        assertThat(payment.getBalanceAmount()).isEqualTo(7_000);
-        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.PARTIAL_CANCELED);
-    }
-
-    @Test
-    @DisplayName("부분 취소를 여러 번 해서 잔액이 0이 되면 CANCELED")
-    void partialCancel_untilZero() {
-        Payment payment = approvedPayment(true);
-
-        payment.cancel(3_000);
-        payment.cancel(7_000);
-
-        assertThat(payment.getBalanceAmount()).isZero();
-        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.CANCELED);
-    }
-
-    @Test
-    @DisplayName("잔액 전체를 취소하면 CANCELED")
-    void fullCancel() {
-        Payment payment = approvedPayment(false);
-
-        payment.cancel(10_000);
-
-        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.CANCELED);
-    }
-
-    @Test
-    @DisplayName("잔액보다 큰 금액은 취소할 수 없다")
-    void cancel_overBalance() {
-        Payment payment = approvedPayment(true);
-        payment.cancel(3_000);
-
-        assertThatThrownBy(() -> payment.cancel(8_000))
+        assertThatThrownBy(() -> payment.validateCancel(10_001))
                 .isInstanceOf(PgException.class)
                 .extracting("errorCode").isEqualTo(ErrorCode.EXCEED_CANCEL_AMOUNT);
     }
 
     @Test
-    @DisplayName("부분 취소 불가 결제는 잔액보다 적게 취소할 수 없다")
-    void cancel_notPartialCancelable() {
+    @DisplayName("부분 취소 불가 결제는 남은 금액보다 적게 취소할 수 없다")
+    void validateCancel_notPartialCancelable() {
         Payment payment = approvedPayment(false);
 
-        assertThatThrownBy(() -> payment.cancel(3_000))
+        assertThatThrownBy(() -> payment.validateCancel(3_000))
                 .isInstanceOf(PgException.class)
                 .extracting("errorCode").isEqualTo(ErrorCode.NOT_PARTIAL_CANCELABLE);
-        assertThat(payment.getBalanceAmount()).isEqualTo(10_000);
     }
 
     @Test
     @DisplayName("승인 전(IN_PROGRESS) 결제는 취소할 수 없다")
-    void cancel_beforeApprove() {
+    void validateCancel_beforeApprove() {
         Payment payment = newPayment();
 
-        assertThatThrownBy(() -> payment.cancel(15_000))
+        assertThatThrownBy(() -> payment.validateCancel(15_000))
                 .isInstanceOf(PgException.class)
                 .extracting("errorCode").isEqualTo(ErrorCode.INVALID_STATUS);
     }
 
     @Test
     @DisplayName("CANCELED 결제는 다시 취소할 수 없다")
-    void cancel_afterCanceled() {
+    void validateCancel_afterCanceled() {
         Payment payment = approvedPayment(true);
-        payment.cancel(10_000);
+        ReflectionTestUtils.setField(payment, "status", PaymentStatus.CANCELED);
 
-        assertThatThrownBy(() -> payment.cancel(1_000))
+        assertThatThrownBy(() -> payment.validateCancel(1_000))
                 .isInstanceOf(PgException.class)
                 .extracting("errorCode").isEqualTo(ErrorCode.INVALID_STATUS);
     }

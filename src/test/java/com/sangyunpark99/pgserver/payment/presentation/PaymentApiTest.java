@@ -470,7 +470,7 @@ class PaymentApiTest {
         }
 
         @Test
-        @DisplayName("카드사 응답을 못 받으면 503, 결제·잔액 그대로, 취소 거래는 REQUESTED로 남는다")
+        @DisplayName("카드사 응답을 못 받으면 503, 잔액은 차감된 채로 두고 취소 거래는 REQUESTED로 남는다")
         void cardUnavailable() throws Exception {
             String paymentKey = approvedPaymentKey(10_000, true);
             given(cardCompanyClient.cancel(anyString(), anyString(), anyLong()))
@@ -480,8 +480,8 @@ class PaymentApiTest {
                     .andExpect(status().isServiceUnavailable());
 
             Payment payment = paymentRepository.findByPaymentKey(paymentKey).orElseThrow();
-            assertThat(payment.getStatus()).isEqualTo(PaymentStatus.DONE);
-            assertThat(payment.getBalanceAmount()).isEqualTo(10_000);
+            assertThat(payment.getStatus()).isEqualTo(PaymentStatus.PARTIAL_CANCELED);
+            assertThat(payment.getBalanceAmount()).isEqualTo(7_000);
             assertThat(transactionRepository.findByPaymentKeyAndTypeOrderByIdAsc(paymentKey, TransactionType.CANCEL)
                     .getFirst().getStatus()).isEqualTo(TransactionStatus.REQUESTED);
         }

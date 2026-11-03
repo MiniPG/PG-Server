@@ -38,8 +38,10 @@ class DatetimePrecisionExperimentTest {
     private static final LocalDateTime NANOS = LocalDateTime.of(2026, 11, 1, 23, 59, 59, 999_999_600);
     private static final LocalDate DAY1 = LocalDate.of(2026, 11, 1);
 
-    @Autowired PaymentTransactionRepository transactionRepository;
-    @Autowired JdbcTemplate jdbc;
+    @Autowired
+    private PaymentTransactionRepository transactionRepository;
+    @Autowired
+    private JdbcTemplate jdbc;
 
     private final List<String> out = new ArrayList<>();
     private final List<String> txKeys = new ArrayList<>();

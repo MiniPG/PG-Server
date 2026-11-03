@@ -121,12 +121,6 @@ public class Payment {
         }
     }
 
-    public void cancel(long cancelAmount) {
-        validateCancel(cancelAmount);
-        this.balanceAmount -= cancelAmount;
-        changeStatus(balanceAmount == 0 ? PaymentStatus.CANCELED : PaymentStatus.PARTIAL_CANCELED);
-    }
-
     public boolean isExpired(LocalDateTime now) {
         return status == PaymentStatus.IN_PROGRESS
                 && now.isAfter(requestedAt.plus(VALID_DURATION));
