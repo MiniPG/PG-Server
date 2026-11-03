@@ -189,7 +189,7 @@ class PaymentApiTest {
         }
 
         @Test
-        @DisplayName("카드사 응답을 못 받으면 503, 결제는 IN_PROGRESS, 승인 거래는 REQUESTED로 남는다")
+        @DisplayName("카드사 응답을 못 받으면 503, 결제는 APPROVING, 승인 거래는 REQUESTED로 남는다")
         void cardUnavailable() throws Exception {
             given(cardCompanyClient.approve(anyString(), anyString(), anyLong()))
                     .willThrow(new CardCompanyUnavailableException("timeout", null));
@@ -201,7 +201,7 @@ class PaymentApiTest {
                     .andExpect(jsonPath("$.code").value("CARD_COMPANY_UNAVAILABLE"));
 
             Payment payment = paymentRepository.findByPaymentKey(paymentKey).orElseThrow();
-            assertThat(payment.getStatus()).isEqualTo(PaymentStatus.IN_PROGRESS);
+            assertThat(payment.getStatus()).isEqualTo(PaymentStatus.APPROVING);
             List<PaymentTransaction> txs = transactionRepository.findByPaymentKeyAndTypeOrderByIdAsc(paymentKey, TransactionType.APPROVE);
             assertThat(txs).hasSize(1);
             assertThat(txs.getFirst().getStatus()).isEqualTo(TransactionStatus.REQUESTED);

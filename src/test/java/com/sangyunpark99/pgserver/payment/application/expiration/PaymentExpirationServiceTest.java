@@ -7,6 +7,7 @@ import com.sangyunpark99.pgserver.payment.infrastructure.PaymentRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
@@ -32,10 +33,11 @@ class PaymentExpirationServiceTest {
     }
 
     @Test
-    @DisplayName("30분이 지난 IN_PROGRESS 결제만 EXPIRED로 바꾼다")
+    @DisplayName("30분이 지난 IN_PROGRESS 결제만 EXPIRED로 바꾸고, 승인 처리 중(APPROVING)인 결제는 건드리지 않는다")
     void expireOverdue() {
         String overdue = save(now.minusMinutes(31));
         String justBefore = save(now.minusMinutes(29));
+        String approving = saveApproving(now.minusMinutes(31));
         String approved = saveApproved(now.minusMinutes(31));
 
         int count = expirationService.expireOverdue(now);
@@ -43,6 +45,7 @@ class PaymentExpirationServiceTest {
         assertThat(count).isEqualTo(1);
         assertThat(statusOf(overdue)).isEqualTo(PaymentStatus.EXPIRED);
         assertThat(statusOf(justBefore)).isEqualTo(PaymentStatus.IN_PROGRESS);
+        assertThat(statusOf(approving)).isEqualTo(PaymentStatus.APPROVING);
         assertThat(statusOf(approved)).isEqualTo(PaymentStatus.DONE);
     }
 
@@ -72,10 +75,20 @@ class PaymentExpirationServiceTest {
         return paymentKey;
     }
 
+    private String saveApproving(LocalDateTime requestedAt) {
+        String paymentKey = "pk_" + UUID.randomUUID().toString().replace("-", "");
+        Payment payment = Payment.create(paymentKey, "order-" + UUID.randomUUID(), "티셔츠",
+                "m_test", 10_000, true, requestedAt);
+        ReflectionTestUtils.setField(payment, "status", PaymentStatus.APPROVING);
+        paymentRepository.save(payment);
+        return paymentKey;
+    }
+
     private String saveApproved(LocalDateTime requestedAt) {
         String paymentKey = "pk_" + UUID.randomUUID().toString().replace("-", "");
         Payment payment = Payment.create(paymentKey, "order-" + UUID.randomUUID(), "티셔츠",
                 "m_test", 10_000, true, requestedAt);
+        ReflectionTestUtils.setField(payment, "status", PaymentStatus.APPROVING);
         payment.approve(new CardInfo("11", "1234-****-****-5678", "12345678"), requestedAt.plusSeconds(1));
         paymentRepository.save(payment);
         return paymentKey;
