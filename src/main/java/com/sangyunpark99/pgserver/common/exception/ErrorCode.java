@@ -24,6 +24,8 @@ public enum ErrorCode {
 
     INVALID_STATUS(HttpStatus.CONFLICT, "현재 결제 상태에서는 처리할 수 없습니다."),
     APPROVAL_IN_PROGRESS(HttpStatus.CONFLICT, "승인을 처리하고 있습니다. 결제를 조회해 결과를 확인해 주세요."),
+    ALREADY_PROCESSED_PAYMENT(HttpStatus.CONFLICT, "이미 승인된 결제입니다. 결제를 조회해 결과를 확인해 주세요."),
+    ALREADY_CANCELED_PAYMENT(HttpStatus.CONFLICT, "이미 전체 취소된 결제입니다."),
     PAYMENT_EXPIRED(HttpStatus.CONFLICT, "결제 가능 시간(30분)이 지났습니다."),
     DUPLICATED(HttpStatus.CONFLICT, "이미 존재하는 데이터입니다."),
     CANCEL_FAILED(HttpStatus.CONFLICT, "카드사에서 취소를 거절했습니다."),

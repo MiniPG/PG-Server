@@ -244,6 +244,7 @@ public class PaymentService {
         return switch (status) {
             case APPROVING -> new PgException(ErrorCode.APPROVAL_IN_PROGRESS);
             case EXPIRED -> new PgException(ErrorCode.PAYMENT_EXPIRED);
+            case DONE, PARTIAL_CANCELED, CANCELED -> new PgException(ErrorCode.ALREADY_PROCESSED_PAYMENT);
             default -> new PgException(ErrorCode.INVALID_STATUS, "승인할 수 없는 상태입니다. status=" + status);
         };
     }

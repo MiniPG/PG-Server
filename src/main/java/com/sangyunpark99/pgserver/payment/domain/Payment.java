@@ -103,6 +103,9 @@ public class Payment {
     }
 
     public void validateCancel(long cancelAmount) {
+        if (status == PaymentStatus.CANCELED) {
+            throw new PgException(ErrorCode.ALREADY_CANCELED_PAYMENT);
+        }
         if (status != PaymentStatus.DONE && status != PaymentStatus.PARTIAL_CANCELED) {
             throw new PgException(ErrorCode.INVALID_STATUS, "취소할 수 없는 상태입니다. status=" + status);
         }

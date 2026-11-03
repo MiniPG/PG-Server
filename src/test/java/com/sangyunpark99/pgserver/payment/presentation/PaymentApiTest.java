@@ -251,7 +251,7 @@ class PaymentApiTest {
         }
 
         @Test
-        @DisplayName("이미 승인된 결제를 다시 승인하면 409이고 카드사는 한 번만 호출된다")
+        @DisplayName("이미 승인된 결제를 다시 승인하면 409 ALREADY_PROCESSED_PAYMENT이고 카드사는 한 번만 호출된다")
         void confirmTwice() throws Exception {
             String orderId = newOrderId();
             String paymentKey = createAndGetKey(orderId, 15_000);
@@ -259,7 +259,22 @@ class PaymentApiTest {
 
             confirm(MERCHANT, paymentKey, orderId, 15_000)
                     .andExpect(status().isConflict())
-                    .andExpect(jsonPath("$.code").value("INVALID_STATUS"));
+                    .andExpect(jsonPath("$.code").value("ALREADY_PROCESSED_PAYMENT"));
+
+            verify(cardCompanyClient, times(1)).approve(anyString(), anyString(), anyLong());
+        }
+
+        @Test
+        @DisplayName("전체 취소된 결제를 다시 승인해도 409 ALREADY_PROCESSED_PAYMENT")
+        void confirmAfterCanceled() throws Exception {
+            String orderId = newOrderId();
+            String paymentKey = createAndGetKey(orderId, 15_000);
+            confirm(MERCHANT, paymentKey, orderId, 15_000).andExpect(status().isOk());
+            cancel(paymentKey, "고객 변심", null).andExpect(status().isOk());
+
+            confirm(MERCHANT, paymentKey, orderId, 15_000)
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.code").value("ALREADY_PROCESSED_PAYMENT"));
 
             verify(cardCompanyClient, times(1)).approve(anyString(), anyString(), anyLong());
         }
@@ -446,13 +461,16 @@ class PaymentApiTest {
         }
 
         @Test
-        @DisplayName("이미 전체 취소된 결제 → 409")
+        @DisplayName("이미 전체 취소된 결제 → 409 ALREADY_CANCELED_PAYMENT, 카드사 취소는 한 번만 호출된다")
         void alreadyCanceled() throws Exception {
             String paymentKey = approvedPaymentKey(10_000, true);
             cancel(paymentKey, "고객 변심", null).andExpect(status().isOk());
 
             cancel(paymentKey, "고객 변심", null)
-                    .andExpect(status().isConflict());
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.code").value("ALREADY_CANCELED_PAYMENT"));
+
+            verify(cardCompanyClient, times(1)).cancel(anyString(), anyString(), anyLong());
         }
 
         @Test
