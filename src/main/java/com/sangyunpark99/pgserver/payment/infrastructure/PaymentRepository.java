@@ -30,4 +30,28 @@ public interface PaymentRepository extends JpaRepository<Payment, Long> {
     int changeStatusIf(@Param("id") Long id,
                        @Param("current") PaymentStatus current,
                        @Param("next") PaymentStatus next);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            update Payment p
+            set p.status = case when p.balanceAmount = :amount
+                                then com.sangyunpark99.pgserver.payment.domain.PaymentStatus.CANCELED
+                                else com.sangyunpark99.pgserver.payment.domain.PaymentStatus.PARTIAL_CANCELED end,
+                p.balanceAmount = p.balanceAmount - :amount
+            where p.id = :id
+              and p.status in (com.sangyunpark99.pgserver.payment.domain.PaymentStatus.DONE, com.sangyunpark99.pgserver.payment.domain.PaymentStatus.PARTIAL_CANCELED)
+              and p.balanceAmount >= :amount
+            """)
+    int deductBalance(@Param("id") Long id, @Param("amount") long amount);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            update Payment p
+            set p.status = case when p.balanceAmount + :amount = p.totalAmount
+                                then com.sangyunpark99.pgserver.payment.domain.PaymentStatus.DONE
+                                else com.sangyunpark99.pgserver.payment.domain.PaymentStatus.PARTIAL_CANCELED end,
+                p.balanceAmount = p.balanceAmount + :amount
+            where p.id = :id
+            """)
+    int restoreBalance(@Param("id") Long id, @Param("amount") long amount);
 }

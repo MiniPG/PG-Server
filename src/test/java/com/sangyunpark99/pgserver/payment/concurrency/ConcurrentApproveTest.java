@@ -46,9 +46,12 @@ class ConcurrentApproveTest {
         }
     }
 
-    @Autowired PaymentService paymentService;
-    @Autowired PaymentTransactionRepository transactionRepository;
-    @Autowired CardCompanyClient cardCompanyClient;
+    @Autowired
+    private PaymentService paymentService;
+    @Autowired
+    private PaymentTransactionRepository transactionRepository;
+    @Autowired
+    private CardCompanyClient cardCompanyClient;
 
     @BeforeEach
     void setUp() {

@@ -104,8 +104,7 @@ public class PaymentService {
 
     private Payment finishApproval(String mId, ApprovalRequest request, CardApprovalResult result) {
         Payment payment = findOwned(mId, request.paymentKey());
-        PaymentTransaction tx = transactionRepository.findByMerchantAndTransactionKey(mId, request.transactionKey())
-                .orElseThrow(() -> new IllegalStateException("승인 거래가 없습니다. transactionKey=" + request.transactionKey()));
+        PaymentTransaction tx = findTransaction(mId, request.transactionKey());
 
         if (result.approved()) {
             payment.approve(new CardInfo(result.issuerCode(), result.maskedNumber(), result.approveNo()), timeProvider.now());
@@ -133,8 +132,39 @@ public class PaymentService {
     private record ApprovalRequest(String paymentKey, String transactionKey, long amount) {
     }
 
-    @Transactional(noRollbackFor = {CardCancelFailedException.class, CardCompanyUnavailableException.class})
     public Payment cancel(CancelPaymentCommand command) {
+        CancelRequest request = transactionTemplate.execute(status -> startCancel(command));
+
+        CardCancelResult result;
+        try {
+            result = cardCompanyClient.cancel(request.transactionKey(), request.approveNo(), request.amount());
+        } catch (CardCompanyUnavailableException e) {
+            metrics.cancel(PaymentMetrics.UNAVAILABLE);
+            log.atWarn().setMessage("결제 취소 결과 모름: 카드사 응답 없음")
+                    .addKeyValue("paymentKey", request.paymentKey())
+                    .addKeyValue("transactionKey", request.transactionKey())
+                    .addKeyValue("cancelAmount", request.amount())
+                    .addKeyValue("cause", e.getCause() == null ? e.getMessage() : e.getCause().toString())
+                    .log();
+            throw e;
+        }
+
+        if (!result.canceled()) {
+            transactionTemplate.executeWithoutResult(status -> rejectCancel(command.mId(), request));
+            metrics.cancel(PaymentMetrics.REJECTED);
+            log.atInfo().setMessage("결제 취소 거절")
+                    .addKeyValue("paymentKey", request.paymentKey())
+                    .addKeyValue("transactionKey", request.transactionKey())
+                    .addKeyValue("cancelAmount", request.amount())
+                    .addKeyValue("failureCode", result.failureCode())
+                    .log();
+            throw new CardCancelFailedException(result.failureCode(), result.failureMessage());
+        }
+
+        return transactionTemplate.execute(status -> finishCancel(command.mId(), request));
+    }
+
+    private CancelRequest startCancel(CancelPaymentCommand command) {
         Payment payment = findOwned(command.mId(), command.paymentKey());
 
         if (command.cancelReason() == null || command.cancelReason().isBlank()) {
@@ -143,47 +173,45 @@ public class PaymentService {
         long cancelAmount = command.cancelAmount() == null ? payment.getBalanceAmount() : command.cancelAmount();
         payment.validateCancel(cancelAmount);
 
+        int deducted = paymentRepository.deductBalance(payment.getId(), cancelAmount);
+        if (deducted == 0) {
+            findOwned(command.mId(), command.paymentKey()).validateCancel(cancelAmount);
+            throw new PgException(ErrorCode.EXCEED_CANCEL_AMOUNT);
+        }
+
         PaymentTransaction tx = PaymentTransaction.request(
                 generateTransactionKey(), payment.getPaymentKey(), payment.getMId(), TransactionType.CANCEL,
                 cancelAmount, command.cancelReason(), timeProvider.now()
         );
         transactionRepository.save(tx);
+        return new CancelRequest(payment.getId(), payment.getPaymentKey(), tx.getTransactionKey(),
+                payment.getCard().getApproveNo(), cancelAmount);
+    }
 
-        CardCancelResult result;
-        try {
-            result = cardCompanyClient.cancel(tx.getTransactionKey(), payment.getCard().getApproveNo(), cancelAmount);
-        } catch (CardCompanyUnavailableException e) {
-            metrics.cancel(PaymentMetrics.UNAVAILABLE);
-            log.atWarn().setMessage("결제 취소 결과 모름: 카드사 응답 없음")
-                    .addKeyValue("paymentKey", payment.getPaymentKey())
-                    .addKeyValue("transactionKey", tx.getTransactionKey())
-                    .addKeyValue("cancelAmount", cancelAmount)
-                    .addKeyValue("cause", e.getCause() == null ? e.getMessage() : e.getCause().toString())
-                    .log();
-            throw e;
-        }
+    private void rejectCancel(String mId, CancelRequest request) {
+        paymentRepository.restoreBalance(request.paymentId(), request.amount());
+        findTransaction(mId, request.transactionKey()).fail(timeProvider.now());
+    }
 
-        if (!result.canceled()) {
-            tx.fail(timeProvider.now());
-            metrics.cancel(PaymentMetrics.REJECTED);
-            log.atInfo().setMessage("결제 취소 거절")
-                    .addKeyValue("paymentKey", payment.getPaymentKey())
-                    .addKeyValue("transactionKey", tx.getTransactionKey())
-                    .addKeyValue("cancelAmount", cancelAmount)
-                    .addKeyValue("failureCode", result.failureCode())
-                    .log();
-            throw new CardCancelFailedException(result.failureCode(), result.failureMessage());
-        }
-        payment.cancel(cancelAmount);
-        tx.complete(timeProvider.now());
+    private Payment finishCancel(String mId, CancelRequest request) {
+        findTransaction(mId, request.transactionKey()).complete(timeProvider.now());
+        Payment payment = findOwned(mId, request.paymentKey());
         metrics.cancel(PaymentMetrics.CANCELED);
         log.atInfo().setMessage("결제 취소")
                 .addKeyValue("paymentKey", payment.getPaymentKey())
-                .addKeyValue("transactionKey", tx.getTransactionKey())
-                .addKeyValue("cancelAmount", cancelAmount)
+                .addKeyValue("transactionKey", request.transactionKey())
+                .addKeyValue("cancelAmount", request.amount())
                 .addKeyValue("balanceAmount", payment.getBalanceAmount())
                 .log();
         return payment;
+    }
+
+    private PaymentTransaction findTransaction(String mId, String transactionKey) {
+        return transactionRepository.findByMerchantAndTransactionKey(mId, transactionKey)
+                .orElseThrow(() -> new IllegalStateException("거래가 없습니다. transactionKey=" + transactionKey));
+    }
+
+    private record CancelRequest(Long paymentId, String paymentKey, String transactionKey, String approveNo, long amount) {
     }
 
     @Transactional(readOnly = true)
