@@ -1,5 +1,6 @@
 package com.sangyunpark99.pgserver.payment.application;
 
+import com.sangyunpark99.pgserver.common.time.TimeProvider;
 import com.sangyunpark99.pgserver.common.exception.CardCancelFailedException;
 import com.sangyunpark99.pgserver.common.exception.CardCompanyUnavailableException;
 import com.sangyunpark99.pgserver.common.exception.ErrorCode;
@@ -19,7 +20,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 
@@ -31,6 +31,7 @@ public class PaymentService {
     private final PaymentTransactionRepository transactionRepository;
     private final CardCompanyClient cardCompanyClient;
     private final PaymentMetrics metrics;
+    private final TimeProvider timeProvider;
 
     @Transactional
     public Payment create(CreatePaymentCommand command) {
@@ -41,7 +42,7 @@ public class PaymentService {
                 command.mId(),
                 command.amount(),
                 command.partialCancelable(),
-                LocalDateTime.now()
+                timeProvider.now()
         );
         paymentRepository.save(payment);
         log.atInfo().setMessage("결제 생성")
@@ -71,7 +72,7 @@ public class PaymentService {
 
         PaymentTransaction tx = PaymentTransaction.request(
                 generateTransactionKey(), payment.getPaymentKey(), payment.getMId(), TransactionType.APPROVE,
-                payment.getTotalAmount(), null, LocalDateTime.now()
+                payment.getTotalAmount(), null, timeProvider.now()
         );
         transactionRepository.save(tx);
 
@@ -89,8 +90,8 @@ public class PaymentService {
         }
 
         if (result.approved()) {
-            payment.approve(new CardInfo(result.issuerCode(), result.maskedNumber(), result.approveNo()), LocalDateTime.now());
-            tx.complete(LocalDateTime.now());
+            payment.approve(new CardInfo(result.issuerCode(), result.maskedNumber(), result.approveNo()), timeProvider.now());
+            tx.complete(timeProvider.now());
             metrics.approve(PaymentMetrics.APPROVED);
             log.atInfo().setMessage("결제 승인")
                     .addKeyValue("paymentKey", payment.getPaymentKey())
@@ -99,7 +100,7 @@ public class PaymentService {
                     .log();
         } else {
             payment.abort(result.failureCode(), result.failureMessage());
-            tx.fail(LocalDateTime.now());
+            tx.fail(timeProvider.now());
             metrics.approve(PaymentMetrics.REJECTED);
             log.atInfo().setMessage("결제 승인 거절")
                     .addKeyValue("paymentKey", payment.getPaymentKey())
@@ -123,7 +124,7 @@ public class PaymentService {
 
         PaymentTransaction tx = PaymentTransaction.request(
                 generateTransactionKey(), payment.getPaymentKey(), payment.getMId(), TransactionType.CANCEL,
-                cancelAmount, command.cancelReason(), LocalDateTime.now()
+                cancelAmount, command.cancelReason(), timeProvider.now()
         );
         transactionRepository.save(tx);
 
@@ -142,7 +143,7 @@ public class PaymentService {
         }
 
         if (!result.canceled()) {
-            tx.fail(LocalDateTime.now());
+            tx.fail(timeProvider.now());
             metrics.cancel(PaymentMetrics.REJECTED);
             log.atInfo().setMessage("결제 취소 거절")
                     .addKeyValue("paymentKey", payment.getPaymentKey())
@@ -153,7 +154,7 @@ public class PaymentService {
             throw new CardCancelFailedException(result.failureCode(), result.failureMessage());
         }
         payment.cancel(cancelAmount);
-        tx.complete(LocalDateTime.now());
+        tx.complete(timeProvider.now());
         metrics.cancel(PaymentMetrics.CANCELED);
         log.atInfo().setMessage("결제 취소")
                 .addKeyValue("paymentKey", payment.getPaymentKey())
@@ -185,7 +186,7 @@ public class PaymentService {
         if (payment.getStatus() != PaymentStatus.IN_PROGRESS) {
             throw new PgException(ErrorCode.INVALID_STATUS, "승인할 수 없는 상태입니다. status=" + payment.getStatus());
         }
-        if (payment.isExpired(LocalDateTime.now())) {
+        if (payment.isExpired(timeProvider.now())) {
             throw new PgException(ErrorCode.PAYMENT_EXPIRED);
         }
     }
