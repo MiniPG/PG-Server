@@ -24,6 +24,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.BDDMockito.willThrow;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 
 @SpringBootTest
@@ -51,6 +52,7 @@ class PaymentMetricsTest {
         double approved = counter("payment.approve", PaymentMetrics.APPROVED);
         double rejected = counter("payment.approve", PaymentMetrics.REJECTED);
         double unavailable = counter("payment.approve", PaymentMetrics.UNAVAILABLE);
+        double reversed = counter("payment.approve", PaymentMetrics.REVERSED);
 
         approve();
         given(cardCompanyClient.approve(anyString(), anyString(), anyLong()))
@@ -63,14 +65,17 @@ class PaymentMetricsTest {
         assertThat(counter("payment.approve", PaymentMetrics.APPROVED)).isEqualTo(approved + 1);
         assertThat(counter("payment.approve", PaymentMetrics.REJECTED)).isEqualTo(rejected + 1);
         assertThat(counter("payment.approve", PaymentMetrics.UNAVAILABLE)).isEqualTo(unavailable + 1);
+        assertThat(counter("payment.approve", PaymentMetrics.REVERSED)).isEqualTo(reversed + 1);
     }
 
     @Test
-    @DisplayName("카드사 응답을 못 받으면 결과 불명(REQUESTED) 거래 게이지가 1 늘어난다")
+    @DisplayName("카드사 응답을 못 받고 망취소도 실패하면 결과 불명(REQUESTED) 거래 게이지가 1 늘어난다")
     void requestedGauge() throws Exception {
         double before = registry.get("payment.transactions.requested").gauge().value();
         given(cardCompanyClient.approve(anyString(), anyString(), anyLong()))
                 .willThrow(new CardCompanyUnavailableException("timeout", null));
+        willThrow(new CardCompanyUnavailableException("timeout", null))
+                .given(cardCompanyClient).reverse(anyString(), anyString(), anyLong());
 
         approve();
 

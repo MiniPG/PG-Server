@@ -30,6 +30,10 @@ public class DelayedCardCompanyClient implements CardCompanyClient {
         return CardCancelResult.success();
     }
 
+    @Override
+    public void reverse(String transactionKey, String paymentKey, long amount) {
+    }
+
     public int approveCalls() {
         return approveCalls.get();
     }

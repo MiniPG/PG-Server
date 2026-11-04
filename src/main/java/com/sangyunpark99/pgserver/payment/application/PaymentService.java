@@ -28,6 +28,9 @@ import java.util.UUID;
 @Service
 @RequiredArgsConstructor
 public class PaymentService {
+    private static final String REVERSED_CODE = "APPROVAL_REVERSED";
+    private static final String REVERSED_MESSAGE = "카드사 응답이 없어 승인을 취소했습니다. 다시 결제해 주세요.";
+
     private final PaymentRepository paymentRepository;
     private final PaymentTransactionRepository transactionRepository;
     private final CardCompanyClient cardCompanyClient;
@@ -79,10 +82,39 @@ public class PaymentService {
                     .addKeyValue("transactionKey", request.transactionKey())
                     .addKeyValue("cause", e.getCause() == null ? e.getMessage() : e.getCause().toString())
                     .log();
-            throw e;
+            return reverseApproval(command.mId(), request, e);
         }
 
         return transactionTemplate.execute(status -> finishApproval(command.mId(), request, result));
+    }
+
+    private Payment reverseApproval(String mId, ApprovalRequest request, CardCompanyUnavailableException approvalFailure) {
+        try {
+            cardCompanyClient.reverse(request.transactionKey(), request.paymentKey(), request.amount());
+        } catch (CardCompanyUnavailableException e) {
+            log.atWarn().setMessage("망취소 실패: 승인 결과 모름")
+                    .addKeyValue("paymentKey", request.paymentKey())
+                    .addKeyValue("transactionKey", request.transactionKey())
+                    .addKeyValue("cause", e.getCause() == null ? e.getMessage() : e.getCause().toString())
+                    .log();
+            throw approvalFailure;
+        }
+
+        Payment payment = transactionTemplate.execute(status -> abortReversedApproval(mId, request));
+        metrics.approve(PaymentMetrics.REVERSED);
+        log.atInfo().setMessage("결제 망취소")
+                .addKeyValue("paymentKey", request.paymentKey())
+                .addKeyValue("transactionKey", request.transactionKey())
+                .addKeyValue("result", PaymentMetrics.REVERSED)
+                .log();
+        return payment;
+    }
+
+    private Payment abortReversedApproval(String mId, ApprovalRequest request) {
+        Payment payment = findOwned(mId, request.paymentKey());
+        payment.abort(REVERSED_CODE, REVERSED_MESSAGE);
+        findTransaction(mId, request.transactionKey()).fail(timeProvider.now());
+        return payment;
     }
 
     private ApprovalRequest startApproval(ConfirmPaymentCommand command) {

@@ -86,6 +86,35 @@ class HttpCardCompanyClientTest {
     }
 
     @Test
+    @DisplayName("망취소는 원래 승인의 transactionKey로 보낸다")
+    void reverse() {
+        server.expect(requestTo("http://card/v1/approvals/tx_1/reversal"))
+                .andExpect(method(HttpMethod.POST))
+                .andExpect(content().json("""
+                        {"paymentKey":"pk_1","amount":10000}
+                        """))
+                .andRespond(withSuccess("""
+                        {"transactionKey":"tx_1","status":"REVERSED"}
+                        """, MediaType.APPLICATION_JSON));
+
+        client.reverse("tx_1", "pk_1", 10_000);
+
+        server.verify();
+    }
+
+    @Test
+    @DisplayName("망취소 결과가 승인으로 남아 있으면 결과를 모르는 상태로 본다")
+    void reverseStillApproved() {
+        server.expect(requestTo("http://card/v1/approvals/tx_1/reversal"))
+                .andRespond(withSuccess("""
+                        {"transactionKey":"tx_1","status":"APPROVED"}
+                        """, MediaType.APPLICATION_JSON));
+
+        assertThatThrownBy(() -> client.reverse("tx_1", "pk_1", 10_000))
+                .isInstanceOf(CardCompanyUnavailableException.class);
+    }
+
+    @Test
     @DisplayName("타임아웃이면 결과를 모르는 상태로 보고 CardCompanyUnavailableException")
     void timeout() {
         server.expect(requestTo("http://card/v1/approvals"))
