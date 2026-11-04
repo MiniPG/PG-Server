@@ -5,6 +5,9 @@ import org.springframework.http.MediaType;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 
+import java.time.LocalDateTime;
+import java.util.List;
+
 public class HttpCardCompanyClient implements CardCompanyClient {
     private final RestClient restClient;
 
@@ -44,6 +47,36 @@ public class HttpCardCompanyClient implements CardCompanyClient {
         }
     }
 
+    @Override
+    public CardTransactionPage listTransactions(LocalDateTime from, LocalDateTime to, String startingAfter, int limit) {
+        try {
+            CardTransactionPage response = restClient.get()
+                    .uri(builder -> {
+                        builder.path("/v1/transactions")
+                                .queryParam("from", from)
+                                .queryParam("to", to)
+                                .queryParam("limit", limit);
+                        if (startingAfter != null) {
+                            builder.queryParam("startingAfter", startingAfter);
+                        }
+                        return builder.build();
+                    })
+                    .retrieve()
+                    .body(CardTransactionPage.class);
+            if (response == null) {
+                throw new CardCompanyUnavailableException("카드사 응답 본문이 비어 있습니다.", null);
+            }
+            return response;
+        } catch (RestClientException e) {
+            throw new CardCompanyUnavailableException("카드사와 통신하지 못했습니다.", e);
+        }
+    }
+
+    @Override
+    public List<CardTransactionRecord> lookup(List<String> transactionKeys) {
+        return post("/v1/transactions/lookup", new LookupRequest(transactionKeys), LookupResponse.class).transactions();
+    }
+
     private <T> T post(String uri, Object body, Class<T> responseType) {
         try {
             T response = restClient.post()
@@ -73,4 +106,8 @@ public class HttpCardCompanyClient implements CardCompanyClient {
     record ReversalRequest(String paymentKey, long amount) {}
 
     record ReversalResponse(String transactionKey, String status) {}
+
+    record LookupRequest(List<String> transactionKeys) {}
+
+    record LookupResponse(List<CardTransactionRecord> transactions) {}
 }
