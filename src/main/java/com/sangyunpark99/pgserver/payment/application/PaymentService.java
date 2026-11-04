@@ -124,7 +124,7 @@ public class PaymentService {
 
         int claimed = paymentRepository.changeStatusIf(payment.getId(), PaymentStatus.IN_PROGRESS, PaymentStatus.APPROVING);
         if (claimed == 0) {
-            throw rejectByStatus(findOwned(command.mId(), command.paymentKey()).getStatus());
+            throw rejectByStatus(findLatest(payment.getId()).getStatus());
         }
 
         PaymentTransaction tx = PaymentTransaction.request(
@@ -211,7 +211,7 @@ public class PaymentService {
 
         int deducted = paymentRepository.deductBalance(payment.getId(), cancelAmount);
         if (deducted == 0) {
-            findOwned(command.mId(), command.paymentKey()).validateCancel(cancelAmount);
+            findLatest(payment.getId()).validateCancel(cancelAmount);
             throw new PgException(ErrorCode.EXCEED_CANCEL_AMOUNT);
         }
 
@@ -256,6 +256,11 @@ public class PaymentService {
     @Transactional(readOnly = true)
     public List<PaymentTransaction> findCancels(String paymentKey) {
         return transactionRepository.findByPaymentKeyAndTypeOrderByIdAsc(paymentKey, TransactionType.CANCEL);
+    }
+
+    private Payment findLatest(Long paymentId) {
+        return paymentRepository.findByIdForShare(paymentId)
+                .orElseThrow(() -> new PgException(ErrorCode.NOT_FOUND_PAYMENT));
     }
 
     private Payment findOwned(String mId, String paymentKey) {

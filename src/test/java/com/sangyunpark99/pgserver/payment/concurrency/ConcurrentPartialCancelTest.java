@@ -113,6 +113,47 @@ class ConcurrentPartialCancelTest {
         assertThat(successes).isEqualTo(TOTAL / CANCEL);
     }
 
+    @Test
+    @DisplayName("같은 결제에 전액 취소가 동시에 와도 하나만 성공하고, 나머지는 이미 전체 취소된 결제로 응답한다")
+    void fullCancelConcurrently() throws Exception {
+        String mId = "m_" + UUID.randomUUID().toString().substring(0, 8);
+        String orderId = "order-" + UUID.randomUUID();
+        Payment created = paymentService.create(new CreatePaymentCommand(mId, orderId, "티셔츠", TOTAL, true));
+        paymentService.confirm(new ConfirmPaymentCommand(mId, created.getPaymentKey(), orderId, TOTAL));
+        card().reset();
+
+        List<String> results = Collections.synchronizedList(new ArrayList<>());
+        ExecutorService executor = Executors.newFixedThreadPool(REQUESTS);
+        CountDownLatch ready = new CountDownLatch(REQUESTS);
+        CountDownLatch start = new CountDownLatch(1);
+
+        for (int i = 0; i < REQUESTS; i++) {
+            executor.submit(() -> {
+                ready.countDown();
+                try {
+                    start.await();
+                    paymentService.cancel(new CancelPaymentCommand(mId, created.getPaymentKey(), "전액 반품", null));
+                    results.add("성공");
+                } catch (Exception e) {
+                    results.add(e.getClass().getSimpleName() + ": " + e.getMessage());
+                }
+                return null;
+            });
+        }
+        ready.await();
+        start.countDown();
+        executor.shutdown();
+        assertThat(executor.awaitTermination(30, TimeUnit.SECONDS)).isTrue();
+
+        System.out.printf("[동시 전액 취소] 요청 %d, 카드사 취소 호출 %d, 결과 %s%n", REQUESTS, card().cancelCalls(), results);
+
+        assertThat(card().cancelCalls()).isEqualTo(1);
+        assertThat(results).filteredOn("성공"::equals).hasSize(1);
+        assertThat(results).filteredOn(r -> !r.equals("성공"))
+                .hasSize(REQUESTS - 1)
+                .allMatch(r -> r.contains("이미 전체 취소된 결제입니다"));
+    }
+
     private DelayedCardCompanyClient card() {
         return (DelayedCardCompanyClient) cardCompanyClient;
     }
