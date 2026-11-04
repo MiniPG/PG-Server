@@ -18,13 +18,14 @@ public class PaymentMetrics {
     public static final String CANCELED = "canceled";
     public static final String REJECTED = "rejected";
     public static final String UNAVAILABLE = "unavailable";
+    public static final String REVERSED = "reversed";
 
     private final Map<String, Counter> approveCounters;
     private final Map<String, Counter> cancelCounters;
     private final Counter expiredCounter;
 
     public PaymentMetrics(MeterRegistry registry, PaymentTransactionRepository transactionRepository) {
-        this.approveCounters = counters(registry, "payment.approve", List.of(APPROVED, REJECTED, UNAVAILABLE));
+        this.approveCounters = counters(registry, "payment.approve", List.of(APPROVED, REJECTED, UNAVAILABLE, REVERSED));
         this.cancelCounters = counters(registry, "payment.cancel", List.of(CANCELED, REJECTED, UNAVAILABLE));
         this.expiredCounter = registry.counter("payment.expired");
 

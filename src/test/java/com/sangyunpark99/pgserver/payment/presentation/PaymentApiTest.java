@@ -34,6 +34,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.BDDMockito.willThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -189,10 +190,32 @@ class PaymentApiTest {
         }
 
         @Test
-        @DisplayName("카드사 응답을 못 받으면 503, 결제는 APPROVING, 승인 거래는 REQUESTED로 남는다")
+        @DisplayName("카드사 응답을 못 받으면 같은 키로 망취소하고 결제 ABORTED, 승인 거래 FAILED")
+        void cardUnavailableThenReversed() throws Exception {
+            given(cardCompanyClient.approve(anyString(), anyString(), anyLong()))
+                    .willThrow(new CardCompanyUnavailableException("timeout", null));
+            String orderId = newOrderId();
+            String paymentKey = createAndGetKey(orderId, 15_000);
+
+            confirm(MERCHANT, paymentKey, orderId, 15_000)
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.status").value("ABORTED"));
+
+            assertThat(paymentRepository.findByPaymentKey(paymentKey).orElseThrow().getFailureCode())
+                    .isEqualTo("APPROVAL_REVERSED");
+            PaymentTransaction tx = transactionRepository.findByPaymentKeyAndTypeOrderByIdAsc(paymentKey, TransactionType.APPROVE).getFirst();
+            assertThat(tx.getStatus()).isEqualTo(TransactionStatus.FAILED);
+            assertThat(tx.getCompletedAt()).isNotNull();
+            verify(cardCompanyClient).reverse(tx.getTransactionKey(), paymentKey, 15_000);
+        }
+
+        @Test
+        @DisplayName("망취소도 응답을 못 받으면 503, 결제는 APPROVING, 승인 거래는 REQUESTED로 남는다")
         void cardUnavailable() throws Exception {
             given(cardCompanyClient.approve(anyString(), anyString(), anyLong()))
                     .willThrow(new CardCompanyUnavailableException("timeout", null));
+            willThrow(new CardCompanyUnavailableException("timeout", null))
+                    .given(cardCompanyClient).reverse(anyString(), anyString(), anyLong());
             String orderId = newOrderId();
             String paymentKey = createAndGetKey(orderId, 15_000);
 

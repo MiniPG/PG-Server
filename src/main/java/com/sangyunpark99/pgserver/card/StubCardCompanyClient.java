@@ -20,4 +20,8 @@ public class StubCardCompanyClient implements CardCompanyClient {
     public CardCancelResult cancel(String transactionKey, String approveNo, long amount) {
         return CardCancelResult.success();
     }
+
+    @Override
+    public void reverse(String transactionKey, String paymentKey, long amount) {
+    }
 }

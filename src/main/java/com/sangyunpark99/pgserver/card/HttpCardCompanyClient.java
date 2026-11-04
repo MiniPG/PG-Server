@@ -8,6 +8,9 @@ import org.springframework.web.client.RestClientException;
 public class HttpCardCompanyClient implements CardCompanyClient {
     private final RestClient restClient;
 
+    private static final String REVERSED = "REVERSED";
+    private static final String REJECTED = "REJECTED";
+
     public HttpCardCompanyClient(RestClient restClient) {
         this.restClient = restClient;
     }
@@ -30,6 +33,15 @@ public class HttpCardCompanyClient implements CardCompanyClient {
             return CardCancelResult.success();
         }
         return CardCancelResult.rejected(response.failureCode(), response.failureMessage());
+    }
+
+    @Override
+    public void reverse(String transactionKey, String paymentKey, long amount) {
+        ReversalResponse response = post("/v1/approvals/" + transactionKey + "/reversal",
+                new ReversalRequest(paymentKey, amount), ReversalResponse.class);
+        if (!REVERSED.equals(response.status()) && !REJECTED.equals(response.status())) {
+            throw new CardCompanyUnavailableException("망취소 결과가 올바르지 않습니다. status=" + response.status(), null);
+        }
     }
 
     private <T> T post(String uri, Object body, Class<T> responseType) {
@@ -57,4 +69,8 @@ public class HttpCardCompanyClient implements CardCompanyClient {
     record CancelRequest(String transactionKey, String approveNo, long amount) {}
 
     record CancelResponse(String transactionKey, boolean canceled, String failureCode, String failureMessage) {}
+
+    record ReversalRequest(String paymentKey, long amount) {}
+
+    record ReversalResponse(String transactionKey, String status) {}
 }
