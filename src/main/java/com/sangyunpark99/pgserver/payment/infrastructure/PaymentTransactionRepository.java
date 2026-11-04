@@ -24,6 +24,8 @@ public interface PaymentTransactionRepository extends JpaRepository<PaymentTrans
 
     long countByStatus(TransactionStatus status);
 
+    long countByStatusAndTransactedAtBefore(TransactionStatus status, LocalDateTime before);
+
     List<PaymentTransaction> findByTransactionKeyIn(Collection<String> transactionKeys);
 
     @Query("""

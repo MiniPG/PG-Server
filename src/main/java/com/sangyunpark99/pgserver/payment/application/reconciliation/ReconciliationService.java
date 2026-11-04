@@ -24,7 +24,7 @@ import java.util.List;
 @Service
 @RequiredArgsConstructor
 public class ReconciliationService {
-    static final Duration THRESHOLD = Duration.ofSeconds(10);
+    public static final Duration THRESHOLD = Duration.ofSeconds(10);
     private static final int BATCH_SIZE = 100;
 
     private final PaymentTransactionRepository transactionRepository;

@@ -14,6 +14,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.HttpHeaders;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
@@ -37,6 +38,9 @@ class PaymentMetricsTest {
     @Autowired TestMerchants merchants;
 
     @MockitoBean CardCompanyClient cardCompanyClient;
+
+    @Autowired
+    private JdbcTemplate jdbc;
 
     @BeforeEach
     void setUp() {
@@ -83,6 +87,27 @@ class PaymentMetricsTest {
     }
 
     @Test
+    @DisplayName("10초 넘게 REQUESTED로 남은 거래만 payment.transactions.requested.stale로 센다")
+    void staleRequestedGauge() throws Exception {
+        double before = gauge("payment.transactions.requested.stale");
+        given(cardCompanyClient.approve(anyString(), anyString(), anyLong()))
+                .willThrow(new CardCompanyUnavailableException("timeout", null));
+        willThrow(new CardCompanyUnavailableException("timeout", null))
+                .given(cardCompanyClient).reverse(anyString(), anyString(), anyLong());
+
+        approve();
+
+        assertThat(gauge("payment.transactions.requested.stale")).isEqualTo(before);
+
+        jdbc.update("""
+                update payment_transaction set transacted_at = transacted_at - interval 11 second
+                where id = (select id from (select max(id) as id from payment_transaction where status = 'REQUESTED') latest)
+                """);
+
+        assertThat(gauge("payment.transactions.requested.stale")).isEqualTo(before + 1);
+    }
+
+    @Test
     @DisplayName("취소 성공 시 payment.cancel{result=canceled}가 1 늘어난다")
     void cancelCounter() throws Exception {
         String paymentKey = approve();
@@ -115,6 +140,10 @@ class PaymentMetricsTest {
                         {"paymentKey":"%s","orderId":"%s","amount":10000}
                         """.formatted(paymentKey, orderId)));
         return paymentKey;
+    }
+
+    private double gauge(String name) {
+        return registry.get(name).gauge().value();
     }
 
     private double counter(String name, String result) {

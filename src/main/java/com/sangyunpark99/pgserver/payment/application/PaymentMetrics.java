@@ -1,5 +1,7 @@
 package com.sangyunpark99.pgserver.payment.application;
 
+import com.sangyunpark99.pgserver.common.time.TimeProvider;
+import com.sangyunpark99.pgserver.payment.application.reconciliation.ReconciliationService;
 import com.sangyunpark99.pgserver.payment.domain.TransactionStatus;
 import com.sangyunpark99.pgserver.payment.infrastructure.PaymentTransactionRepository;
 import io.micrometer.core.instrument.Counter;
@@ -24,14 +26,21 @@ public class PaymentMetrics {
     private final Map<String, Counter> cancelCounters;
     private final Counter expiredCounter;
 
-    public PaymentMetrics(MeterRegistry registry, PaymentTransactionRepository transactionRepository) {
+    public PaymentMetrics(MeterRegistry registry, PaymentTransactionRepository transactionRepository,
+                          TimeProvider timeProvider) {
         this.approveCounters = counters(registry, "payment.approve", List.of(APPROVED, REJECTED, UNAVAILABLE, REVERSED));
         this.cancelCounters = counters(registry, "payment.cancel", List.of(CANCELED, REJECTED, UNAVAILABLE));
         this.expiredCounter = registry.counter("payment.expired");
 
         Gauge.builder("payment.transactions.requested", transactionRepository,
                         repo -> repo.countByStatus(TransactionStatus.REQUESTED))
-                .description("카드사 결과를 아직 모르는 거래 수")
+                .description("카드사 응답을 기다리는 중이거나 결과를 모르는 거래 수")
+                .register(registry);
+
+        Gauge.builder("payment.transactions.requested.stale", transactionRepository,
+                        repo -> repo.countByStatusAndTransactedAtBefore(TransactionStatus.REQUESTED,
+                                timeProvider.now().minus(ReconciliationService.THRESHOLD)))
+                .description("실시간 대사 기준 시간보다 오래 REQUESTED로 남은, 결과를 모르는 거래 수")
                 .register(registry);
     }
 
