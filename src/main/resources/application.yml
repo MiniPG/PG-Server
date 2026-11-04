@@ -41,6 +41,8 @@ management:
       percentiles-histogram:
         "[http.server.requests]": true
         "[http.client.requests]": true
+      slo:
+        "[http.server.requests]": 50ms,100ms,200ms,600ms,800ms
 
 logging:
   file:
