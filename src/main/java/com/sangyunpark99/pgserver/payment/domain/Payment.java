@@ -24,6 +24,8 @@ import java.time.LocalDateTime;
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class Payment {
+    private static final String REVERSED_CODE = "APPROVAL_REVERSED";
+    private static final String REVERSED_MESSAGE = "카드사 응답이 없어 승인을 취소했습니다. 다시 결제해 주세요.";
     public static final Duration VALID_DURATION = Duration.ofMinutes(30);
 
     @Id
@@ -94,6 +96,10 @@ public class Payment {
         changeStatus(PaymentStatus.DONE);
         this.card = card;
         this.approvedAt = approvedAt;
+    }
+
+    public void abortByReversal() {
+        abort(REVERSED_CODE, REVERSED_MESSAGE);
     }
 
     public void abort(String failureCode, String failureMessage) {
