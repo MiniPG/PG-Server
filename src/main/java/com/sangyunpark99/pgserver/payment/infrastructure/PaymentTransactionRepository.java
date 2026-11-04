@@ -5,6 +5,7 @@ import com.sangyunpark99.pgserver.payment.domain.TransactionStatus;
 import com.sangyunpark99.pgserver.payment.domain.TransactionType;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -21,6 +22,25 @@ public interface PaymentTransactionRepository extends JpaRepository<PaymentTrans
                                                                  @Param("transactionKey") String transactionKey);
 
     long countByStatus(TransactionStatus status);
+
+    @Query("""
+            select t from PaymentTransaction t
+            where t.status = com.sangyunpark99.pgserver.payment.domain.TransactionStatus.REQUESTED
+              and t.transactedAt < :deadline
+            order by t.id asc
+            """)
+    List<PaymentTransaction> findUnresolved(@Param("deadline") LocalDateTime deadline, Pageable pageable);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            update PaymentTransaction t
+            set t.status = :next, t.completedAt = :completedAt
+            where t.id = :id
+              and t.status = com.sangyunpark99.pgserver.payment.domain.TransactionStatus.REQUESTED
+            """)
+    int finishIfRequested(@Param("id") Long id,
+                          @Param("next") TransactionStatus next,
+                          @Param("completedAt") LocalDateTime completedAt);
 
     @Query("""
             select t from PaymentTransaction t
