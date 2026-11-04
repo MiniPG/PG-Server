@@ -10,6 +10,8 @@ import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
 
 import java.net.SocketTimeoutException;
+import java.time.LocalDateTime;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -111,6 +113,67 @@ class HttpCardCompanyClientTest {
                         """, MediaType.APPLICATION_JSON));
 
         assertThatThrownBy(() -> client.reverse("tx_1", "pk_1", 10_000))
+                .isInstanceOf(CardCompanyUnavailableException.class);
+    }
+
+    @Test
+    @DisplayName("거래 목록은 기간·커서·limit을 쿼리 파라미터로 보내고 페이지로 바꾼다")
+    void listTransactions() {
+        server.expect(requestTo("http://card/v1/transactions?from=2026-11-03T00:00&to=2026-11-04T00:00&limit=1000&startingAfter=tx_9"))
+                .andExpect(method(HttpMethod.GET))
+                .andRespond(withSuccess("""
+                        {"transactions":[{"transactionKey":"tx_10","type":"APPROVE","amount":10000,"status":"APPROVED"}],
+                         "hasMore":true}
+                        """, MediaType.APPLICATION_JSON));
+
+        CardTransactionPage page = client.listTransactions(
+                LocalDateTime.of(2026, 11, 3, 0, 0), LocalDateTime.of(2026, 11, 4, 0, 0), "tx_9", 1_000);
+
+        assertThat(page.hasMore()).isTrue();
+        assertThat(page.transactions()).containsExactly(new CardTransactionRecord("tx_10", "APPROVE", 10_000, "APPROVED"));
+        server.verify();
+    }
+
+    @Test
+    @DisplayName("첫 페이지는 startingAfter 없이 보낸다")
+    void listFirstPage() {
+        server.expect(requestTo("http://card/v1/transactions?from=2026-11-03T00:00&to=2026-11-04T00:00&limit=1000"))
+                .andRespond(withSuccess("""
+                        {"transactions":[],"hasMore":false}
+                        """, MediaType.APPLICATION_JSON));
+
+        CardTransactionPage page = client.listTransactions(
+                LocalDateTime.of(2026, 11, 3, 0, 0), LocalDateTime.of(2026, 11, 4, 0, 0), null, 1_000);
+
+        assertThat(page.transactions()).isEmpty();
+        server.verify();
+    }
+
+    @Test
+    @DisplayName("일괄 조회는 키 목록을 본문에 담아 POST로 보낸다")
+    void lookup() {
+        server.expect(requestTo("http://card/v1/transactions/lookup"))
+                .andExpect(method(HttpMethod.POST))
+                .andExpect(content().json("""
+                        {"transactionKeys":["tx_1","tx_2"]}
+                        """))
+                .andRespond(withSuccess("""
+                        {"transactions":[{"transactionKey":"tx_1","type":"CANCEL","amount":3000,"status":"REJECTED"}]}
+                        """, MediaType.APPLICATION_JSON));
+
+        assertThat(client.lookup(List.of("tx_1", "tx_2")))
+                .containsExactly(new CardTransactionRecord("tx_1", "CANCEL", 3_000, "REJECTED"));
+        server.verify();
+    }
+
+    @Test
+    @DisplayName("거래 목록 조회 중 통신에 실패하면 CardCompanyUnavailableException")
+    void listTransactionsUnavailable() {
+        server.expect(requestTo("http://card/v1/transactions?from=2026-11-03T00:00&to=2026-11-04T00:00&limit=1000"))
+                .andRespond(withServerError());
+
+        assertThatThrownBy(() -> client.listTransactions(
+                LocalDateTime.of(2026, 11, 3, 0, 0), LocalDateTime.of(2026, 11, 4, 0, 0), null, 1_000))
                 .isInstanceOf(CardCompanyUnavailableException.class);
     }
 

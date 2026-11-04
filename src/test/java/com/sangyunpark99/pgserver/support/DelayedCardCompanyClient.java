@@ -3,6 +3,11 @@ package com.sangyunpark99.pgserver.support;
 import com.sangyunpark99.pgserver.card.CardApprovalResult;
 import com.sangyunpark99.pgserver.card.CardCancelResult;
 import com.sangyunpark99.pgserver.card.CardCompanyClient;
+import com.sangyunpark99.pgserver.card.CardTransactionPage;
+import com.sangyunpark99.pgserver.card.CardTransactionRecord;
+
+import java.time.LocalDateTime;
+import java.util.List;
 
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -32,6 +37,16 @@ public class DelayedCardCompanyClient implements CardCompanyClient {
 
     @Override
     public void reverse(String transactionKey, String paymentKey, long amount) {
+    }
+
+    @Override
+    public CardTransactionPage listTransactions(LocalDateTime from, LocalDateTime to, String startingAfter, int limit) {
+        return new CardTransactionPage(List.of(), false);
+    }
+
+    @Override
+    public List<CardTransactionRecord> lookup(List<String> transactionKeys) {
+        return List.of();
     }
 
     public int approveCalls() {

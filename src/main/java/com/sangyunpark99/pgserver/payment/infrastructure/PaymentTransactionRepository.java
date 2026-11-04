@@ -10,6 +10,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -22,6 +23,29 @@ public interface PaymentTransactionRepository extends JpaRepository<PaymentTrans
                                                                  @Param("transactionKey") String transactionKey);
 
     long countByStatus(TransactionStatus status);
+
+    List<PaymentTransaction> findByTransactionKeyIn(Collection<String> transactionKeys);
+
+    @Query("""
+            select t from PaymentTransaction t
+            where t.transactedAt >= :from and t.transactedAt < :to
+            order by t.transactedAt asc, t.id asc
+            """)
+    List<PaymentTransaction> findReconciliationFirstPage(@Param("from") LocalDateTime from,
+                                                         @Param("to") LocalDateTime to,
+                                                         Pageable pageable);
+
+    @Query("""
+            select t from PaymentTransaction t
+            where (t.transactedAt > :afterAt or (t.transactedAt = :afterAt and t.id > :afterId))
+              and t.transactedAt >= :from and t.transactedAt < :to
+            order by t.transactedAt asc, t.id asc
+            """)
+    List<PaymentTransaction> findReconciliationPageAfter(@Param("from") LocalDateTime from,
+                                                         @Param("to") LocalDateTime to,
+                                                         @Param("afterAt") LocalDateTime afterAt,
+                                                         @Param("afterId") long afterId,
+                                                         Pageable pageable);
 
     @Query("""
             select t from PaymentTransaction t

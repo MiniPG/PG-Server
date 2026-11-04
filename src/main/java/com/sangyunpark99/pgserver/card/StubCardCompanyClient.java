@@ -3,6 +3,8 @@ package com.sangyunpark99.pgserver.card;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
+import java.time.LocalDateTime;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
 
 @Component
@@ -23,5 +25,15 @@ public class StubCardCompanyClient implements CardCompanyClient {
 
     @Override
     public void reverse(String transactionKey, String paymentKey, long amount) {
+    }
+
+    @Override
+    public CardTransactionPage listTransactions(LocalDateTime from, LocalDateTime to, String startingAfter, int limit) {
+        return new CardTransactionPage(List.of(), false);
+    }
+
+    @Override
+    public List<CardTransactionRecord> lookup(List<String> transactionKeys) {
+        return List.of();
     }
 }
