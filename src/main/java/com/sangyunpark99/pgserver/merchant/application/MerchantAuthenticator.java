@@ -6,7 +6,6 @@ import com.sangyunpark99.pgserver.merchant.domain.Merchant;
 import com.sangyunpark99.pgserver.merchant.infrastructure.MerchantRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
 
 @Component
 @RequiredArgsConstructor
@@ -15,7 +14,6 @@ public class MerchantAuthenticator {
 
     private final MerchantRepository merchantRepository;
 
-    @Transactional(readOnly = true)
     public String authenticate(String authorizationHeader) {
         String secretKey = extractSecretKey(authorizationHeader);
 
