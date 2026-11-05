@@ -3,6 +3,7 @@ package com.sangyunpark99.pgserver.payment.infrastructure;
 import com.sangyunpark99.pgserver.payment.domain.Payment;
 import com.sangyunpark99.pgserver.payment.domain.PaymentStatus;
 import jakarta.persistence.LockModeType;
+import org.springframework.data.domain.Limit;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
@@ -10,6 +11,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 
 public interface PaymentRepository extends JpaRepository<Payment, Long> {
@@ -26,14 +28,22 @@ public interface PaymentRepository extends JpaRepository<Payment, Long> {
     @Query("select p from Payment p where p.mId = :mId and p.orderId = :orderId")
     Optional<Payment> findByMerchantAndOrderId(@Param("mId") String mId, @Param("orderId") String orderId);
 
+    @Query("""
+            select p.id from Payment p
+            where p.status = com.sangyunpark99.pgserver.payment.domain.PaymentStatus.IN_PROGRESS
+              and p.requestedAt < :deadline
+            order by p.requestedAt
+            """)
+    List<Long> findOverdueIds(@Param("deadline") LocalDateTime deadline, Limit limit);
+
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("""
             update Payment p
             set p.status = com.sangyunpark99.pgserver.payment.domain.PaymentStatus.EXPIRED
-            where p.status = com.sangyunpark99.pgserver.payment.domain.PaymentStatus.IN_PROGRESS
-              and p.requestedAt < :deadline
+            where p.id in :ids
+              and p.status = com.sangyunpark99.pgserver.payment.domain.PaymentStatus.IN_PROGRESS
             """)
-    int expireOverdue(@Param("deadline") LocalDateTime deadline);
+    int expireIfInProgress(@Param("ids") List<Long> ids);
 
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("update Payment p set p.status = :next where p.id = :id and p.status = :current")
