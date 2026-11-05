@@ -68,6 +68,18 @@ class PaymentExpirationServiceTest {
         assertThat(expirationService.expireOverdue(now)).isZero();
     }
 
+    @Test
+    @DisplayName("만료 대상이 배치 크기보다 많으면 한 번에 배치 크기만큼만 만료하고, 다음 호출에서 나머지를 만료한다")
+    void batch() {
+        for (int i = 0; i < PaymentExpirationService.BATCH_SIZE + 1; i++) {
+            save(now.minusMinutes(31));
+        }
+
+        assertThat(expirationService.expireOverdue(now)).isEqualTo(PaymentExpirationService.BATCH_SIZE);
+        assertThat(expirationService.expireOverdue(now)).isEqualTo(1);
+        assertThat(expirationService.expireOverdue(now)).isZero();
+    }
+
     private String save(LocalDateTime requestedAt) {
         String paymentKey = "pk_" + UUID.randomUUID().toString().replace("-", "");
         paymentRepository.save(Payment.create(paymentKey, "order-" + UUID.randomUUID(), "티셔츠",

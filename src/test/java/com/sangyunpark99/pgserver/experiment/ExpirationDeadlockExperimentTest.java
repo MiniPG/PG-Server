@@ -41,6 +41,8 @@ class ExpirationDeadlockExperimentTest {
     private static final String M_ID = "m_exp_deadlock";
     private static final int APPROVERS = 8;
     private static final Duration RUN = Duration.ofSeconds(Long.parseLong(System.getenv().getOrDefault("RUN_SECONDS", "20")));
+    private static final boolean RANGE_UPDATE = "range".equals(System.getenv("EXPIRATION"));
+    private static final String RANGE_EXPIRE_SQL = "update payment set status = 'EXPIRED' where status = 'IN_PROGRESS' and requested_at < ?";
 
     private static final MySQLContainer MYSQL = new MySQLContainer("mysql:8.0")
             .withUsername("root")
@@ -79,13 +81,14 @@ class ExpirationDeadlockExperimentTest {
         AtomicInteger claimed = new AtomicInteger();
         AtomicInteger approveDeadlocks = new AtomicInteger();
         AtomicInteger expireRuns = new AtomicInteger();
+        AtomicInteger expired = new AtomicInteger();
         AtomicInteger expireDeadlocks = new AtomicInteger();
 
         ExecutorService pool = Executors.newFixedThreadPool(APPROVERS + 1);
         pool.submit(() -> {
             while (running.get()) {
                 try {
-                    expirationService.expireOverdue(timeProvider.now());
+                    expired.addAndGet(transactionTemplate.execute(status -> expire()));
                     expireRuns.incrementAndGet();
                 } catch (PessimisticLockingFailureException e) {
                     expireDeadlocks.incrementAndGet();
@@ -94,8 +97,10 @@ class ExpirationDeadlockExperimentTest {
         });
         for (int i = 0; i < APPROVERS; i++) {
             pool.submit(() -> {
+                int n = 0;
                 while (running.get()) {
-                    Long id = transactionTemplate.execute(status -> paymentRepository.save(newPayment()).getId());
+                    LocalDateTime requestedAt = n++ % 2 == 0 ? timeProvider.now() : overdue();
+                    Long id = transactionTemplate.execute(status -> paymentRepository.save(newPayment(requestedAt)).getId());
                     try {
                         transactionTemplate.executeWithoutResult(status -> {
                             if (paymentRepository.changeStatusIf(id, PaymentStatus.IN_PROGRESS, PaymentStatus.APPROVING) == 1) {
@@ -125,14 +130,15 @@ class ExpirationDeadlockExperimentTest {
         String deadlock = from < 0 ? "(데드락 기록 없음)" : status.substring(from, to < 0 ? status.length() : to);
 
         String report = """
+                만료 방식: %s
                 실행 시간: %d초, 승인 스레드: %d개
                 승인 선점 성공: %d, 승인 데드락: %d
-                만료 실행: %d, 만료 데드락: %d
+                만료 실행: %d, 만료된 결제: %d, 만료 데드락: %d
                 isolation: %s
 
                 %s
-                """.formatted(RUN.toSeconds(), APPROVERS, claimed.get(), approveDeadlocks.get(),
-                expireRuns.get(), expireDeadlocks.get(),
+                """.formatted(mode(), RUN.toSeconds(), APPROVERS, claimed.get(), approveDeadlocks.get(),
+                expireRuns.get(), expired.get(), expireDeadlocks.get(),
                 jdbc.queryForObject("select @@transaction_isolation", String.class), deadlock);
         System.out.println(report);
         Path out = Path.of("build/experiment/expiration-deadlock.txt");
@@ -151,15 +157,18 @@ class ExpirationDeadlockExperimentTest {
         for (int i = 0; i < 5; i++) {
             transactionTemplate.executeWithoutResult(status -> paymentRepository.save(newPayment()));
         }
+        for (int i = 0; i < 2; i++) {
+            transactionTemplate.executeWithoutResult(status -> paymentRepository.save(newPayment(overdue())));
+        }
         LocalDateTime deadline = timeProvider.now().minus(Payment.VALID_DURATION);
 
         String rows = jdbc.queryForList("select id, status, requested_at from payment order by status, requested_at, id")
                 .stream().map(Map::toString).collect(Collectors.joining("\n"));
-        String explain = query("explain format=tree update payment set status = 'EXPIRED' where status = 'IN_PROGRESS' and requested_at < ?", deadline);
-        String explainTable = query("explain update payment set status = 'EXPIRED' where status = 'IN_PROGRESS' and requested_at < ?", deadline);
+        String explain = query("explain format=tree " + RANGE_EXPIRE_SQL, deadline);
+        String explainTable = query("explain " + RANGE_EXPIRE_SQL, deadline);
 
         String locks = transactionTemplate.execute(status -> {
-            int expired = paymentRepository.expireOverdue(deadline);
+            int expired = expire();
             List<Map<String, Object>> held = jdbc.queryForList("""
                     select index_name, lock_mode, lock_status, lock_data
                     from performance_schema.data_locks
@@ -170,6 +179,7 @@ class ExpirationDeadlockExperimentTest {
         });
 
         String report = """
+                만료 방식: %s
                 deadline: %s
 
                 [payment 행 (status, requested_at 순)]
@@ -183,7 +193,7 @@ class ExpirationDeadlockExperimentTest {
 
                 [만료 쿼리가 쥔 락]
                 %s
-                """.formatted(deadline, rows, explainTable, explain, locks);
+                """.formatted(mode(), deadline, rows, explainTable, explain, locks);
         System.out.println(report);
         Path out = Path.of("build/experiment/expiration-locks.txt");
         Files.createDirectories(out.getParent());
@@ -214,7 +224,7 @@ class ExpirationDeadlockExperimentTest {
 
             LocalDateTime deadline = timeProvider.now().minus(Payment.VALID_DURATION);
             locks = transactionTemplate.execute(status -> {
-                int expired = paymentRepository.expireOverdue(deadline);
+                int expired = expire();
                 return "만료된 행: " + expired + "\n" + query("""
                         select index_name, lock_mode, lock_status, lock_data
                         from performance_schema.data_locks
@@ -227,6 +237,7 @@ class ExpirationDeadlockExperimentTest {
 
         String rows = query("select id, status, requested_at from payment order by status, requested_at, id");
         String report = """
+                만료 방식: %s
                 [오래된 읽기 트랜잭션을 열어 둔 채 1~3번을 승인 → purge가 옛 인덱스 레코드를 못 지움]
 
                 [payment 행 (status, requested_at 순)]
@@ -237,7 +248,7 @@ class ExpirationDeadlockExperimentTest {
 
                 [만료 쿼리가 쥔 락]
                 %s
-                """.formatted(rows, history, locks);
+                """.formatted(mode(), rows, history, locks);
         System.out.println(report);
         Path out = Path.of("build/experiment/expiration-locks-unpurged.txt");
         Files.createDirectories(out.getParent());
@@ -252,8 +263,28 @@ class ExpirationDeadlockExperimentTest {
         }
     }
 
+    private int expire() {
+        LocalDateTime now = timeProvider.now();
+        if (RANGE_UPDATE) {
+            return jdbc.update(RANGE_EXPIRE_SQL, now.minus(Payment.VALID_DURATION));
+        }
+        return expirationService.expireOverdue(now);
+    }
+
+    private String mode() {
+        return RANGE_UPDATE ? "범위 UPDATE (수정 전)" : "id 조회 후 id로 UPDATE (수정 후)";
+    }
+
+    private LocalDateTime overdue() {
+        return timeProvider.now().minus(Payment.VALID_DURATION).minusMinutes(1);
+    }
+
     private Payment newPayment() {
+        return newPayment(timeProvider.now());
+    }
+
+    private Payment newPayment(LocalDateTime requestedAt) {
         String id = UUID.randomUUID().toString();
-        return Payment.create("pk_" + id.replace("-", ""), "order-" + id, "deadlock", M_ID, 10_000, true, timeProvider.now());
+        return Payment.create("pk_" + id.replace("-", ""), "order-" + id, "deadlock", M_ID, 10_000, true, requestedAt);
     }
 }
