@@ -56,12 +56,10 @@ public class PaymentService {
         return payment;
     }
 
-    @Transactional(readOnly = true)
     public Payment getByPaymentKey(String mId, String paymentKey) {
         return findOwned(mId, paymentKey);
     }
 
-    @Transactional(readOnly = true)
     public Payment getByOrderId(String mId, String orderId) {
         return paymentRepository.findByMerchantAndOrderId(mId, orderId)
                 .orElseThrow(() -> new PgException(ErrorCode.NOT_FOUND_PAYMENT));
@@ -253,7 +251,6 @@ public class PaymentService {
     private record CancelRequest(Long paymentId, String paymentKey, String transactionKey, String approveNo, long amount) {
     }
 
-    @Transactional(readOnly = true)
     public List<PaymentTransaction> findCancels(String paymentKey) {
         return transactionRepository.findByPaymentKeyAndTypeOrderByIdAsc(paymentKey, TransactionType.CANCEL);
     }
