@@ -57,7 +57,7 @@ logging:
     name: ${LOG_DIR:logs}/pg-server.log
   structured:
     format:
-      file: logstash
+      file: com.sangyunpark99.pgserver.common.logging.LogstashJsonFormatter
 
   logback:
     rollingpolicy:
