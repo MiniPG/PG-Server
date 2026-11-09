@@ -22,6 +22,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 
@@ -107,8 +108,7 @@ public class PaymentService {
     }
 
     private Payment abortReversedApproval(String mId, ApprovalRequest request) {
-        PaymentTransaction tx = findTransaction(mId, request.transactionKey());
-        int finished = transactionRepository.finishIfRequested(tx.getId(), TransactionStatus.FAILED, timeProvider.now());
+        int finished = transactionRepository.finishIfRequested(request.transactionId(), TransactionStatus.FAILED, timeProvider.now());
         Payment payment = findOwned(mId, request.paymentKey());
         if (finished == 1) {
             payment.abortByReversal();
@@ -130,40 +130,56 @@ public class PaymentService {
                 payment.getTotalAmount(), null, timeProvider.now()
         );
         transactionRepository.save(tx);
-        return new ApprovalRequest(payment.getPaymentKey(), tx.getTransactionKey(), payment.getTotalAmount());
+        payment.startApproving();
+        return new ApprovalRequest(payment, tx.getId(), tx.getTransactionKey());
     }
 
     private Payment finishApproval(String mId, ApprovalRequest request, CardApprovalResult result) {
-        PaymentTransaction tx = findTransaction(mId, request.transactionKey());
+        LocalDateTime now = timeProvider.now();
         TransactionStatus next = result.approved() ? TransactionStatus.DONE : TransactionStatus.FAILED;
-        int finished = transactionRepository.finishIfRequested(tx.getId(), next, timeProvider.now());
-        Payment payment = findOwned(mId, request.paymentKey());
+        int finished = transactionRepository.finishIfRequested(request.transactionId(), next, now);
         if (finished == 0) {
-            return payment;
+            return findOwned(mId, request.paymentKey());
         }
 
         if (result.approved()) {
-            payment.approve(new CardInfo(result.issuerCode(), result.maskedNumber(), result.approveNo()), timeProvider.now());
+            Payment payment = request.payment();
+            CardInfo card = new CardInfo(result.issuerCode(), result.maskedNumber(), result.approveNo());
+            int approved = paymentRepository.approveIfApproving(payment.getId(),
+                    card.getIssuerCode(), card.getMaskedNumber(), card.getApproveNo(), now);
+            if (approved == 0) {
+                throw new IllegalStateException("승인 중이 아닌 결제를 승인하려 했습니다. paymentKey=" + payment.getPaymentKey());
+            }
+            payment.approve(card, now);
             metrics.approve(PaymentMetrics.APPROVED);
             log.atInfo().setMessage("결제 승인")
                     .addKeyValue("paymentKey", payment.getPaymentKey())
-                    .addKeyValue("transactionKey", tx.getTransactionKey())
+                    .addKeyValue("transactionKey", request.transactionKey())
                     .addKeyValue("result", PaymentMetrics.APPROVED)
                     .log();
-        } else {
-            payment.abort(result.failureCode(), result.failureMessage());
-            metrics.approve(PaymentMetrics.REJECTED);
-            log.atInfo().setMessage("결제 승인 거절")
-                    .addKeyValue("paymentKey", payment.getPaymentKey())
-                    .addKeyValue("transactionKey", tx.getTransactionKey())
-                    .addKeyValue("result", PaymentMetrics.REJECTED)
-                    .addKeyValue("failureCode", result.failureCode())
-                    .log();
+            return payment;
         }
+
+        Payment payment = findOwned(mId, request.paymentKey());
+        payment.abort(result.failureCode(), result.failureMessage());
+        metrics.approve(PaymentMetrics.REJECTED);
+        log.atInfo().setMessage("결제 승인 거절")
+                .addKeyValue("paymentKey", payment.getPaymentKey())
+                .addKeyValue("transactionKey", request.transactionKey())
+                .addKeyValue("result", PaymentMetrics.REJECTED)
+                .addKeyValue("failureCode", result.failureCode())
+                .log();
         return payment;
     }
 
-    private record ApprovalRequest(String paymentKey, String transactionKey, long amount) {
+    private record ApprovalRequest(Payment payment, Long transactionId, String transactionKey) {
+        String paymentKey() {
+            return payment.getPaymentKey();
+        }
+
+        long amount() {
+            return payment.getTotalAmount();
+        }
     }
 
     public Payment cancel(CancelPaymentCommand command) {
@@ -218,20 +234,18 @@ public class PaymentService {
                 cancelAmount, command.cancelReason(), timeProvider.now()
         );
         transactionRepository.save(tx);
-        return new CancelRequest(payment.getId(), payment.getPaymentKey(), tx.getTransactionKey(),
+        return new CancelRequest(payment.getId(), payment.getPaymentKey(), tx.getId(), tx.getTransactionKey(),
                 payment.getCard().getApproveNo(), cancelAmount);
     }
 
     private void rejectCancel(String mId, CancelRequest request) {
-        PaymentTransaction tx = findTransaction(mId, request.transactionKey());
-        if (transactionRepository.finishIfRequested(tx.getId(), TransactionStatus.FAILED, timeProvider.now()) == 1) {
+        if (transactionRepository.finishIfRequested(request.transactionId(), TransactionStatus.FAILED, timeProvider.now()) == 1) {
             paymentRepository.restoreBalance(request.paymentId(), request.amount());
         }
     }
 
     private Payment finishCancel(String mId, CancelRequest request) {
-        PaymentTransaction tx = findTransaction(mId, request.transactionKey());
-        transactionRepository.finishIfRequested(tx.getId(), TransactionStatus.DONE, timeProvider.now());
+        transactionRepository.finishIfRequested(request.transactionId(), TransactionStatus.DONE, timeProvider.now());
         Payment payment = findOwned(mId, request.paymentKey());
         metrics.cancel(PaymentMetrics.CANCELED);
         log.atInfo().setMessage("결제 취소")
@@ -243,12 +257,8 @@ public class PaymentService {
         return payment;
     }
 
-    private PaymentTransaction findTransaction(String mId, String transactionKey) {
-        return transactionRepository.findByMerchantAndTransactionKey(mId, transactionKey)
-                .orElseThrow(() -> new IllegalStateException("거래가 없습니다. transactionKey=" + transactionKey));
-    }
-
-    private record CancelRequest(Long paymentId, String paymentKey, String transactionKey, String approveNo, long amount) {
+    private record CancelRequest(Long paymentId, String paymentKey, Long transactionId, String transactionKey,
+                                 String approveNo, long amount) {
     }
 
     public List<PaymentTransaction> findCancels(String paymentKey) {

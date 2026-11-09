@@ -74,4 +74,21 @@ public interface PaymentRepository extends JpaRepository<Payment, Long> {
             where p.id = :id
             """)
     int restoreBalance(@Param("id") Long id, @Param("amount") long amount);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            update Payment p
+            set p.status = com.sangyunpark99.pgserver.payment.domain.PaymentStatus.DONE,
+                p.card.issuerCode = :issuerCode,
+                p.card.maskedNumber = :maskedNumber,
+                p.card.approveNo = :approveNo,
+                p.approvedAt = :approvedAt
+            where p.id = :id
+              and p.status = com.sangyunpark99.pgserver.payment.domain.PaymentStatus.APPROVING
+            """)
+    int approveIfApproving(@Param("id") Long id,
+                           @Param("issuerCode") String issuerCode,
+                           @Param("maskedNumber") String maskedNumber,
+                           @Param("approveNo") String approveNo,
+                           @Param("approvedAt") LocalDateTime approvedAt);
 }
