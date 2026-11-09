@@ -26,6 +26,7 @@ card:
   base-url: http://localhost:8081
   connect-timeout: 1s
   read-timeout: 3s
+  max-connections: 200
 
 pg:
   settlement:

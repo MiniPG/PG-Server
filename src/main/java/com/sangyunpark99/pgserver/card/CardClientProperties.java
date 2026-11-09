@@ -8,6 +8,7 @@ import java.time.Duration;
 public record CardClientProperties(
         String baseUrl,
         Duration connectTimeout,
-        Duration readTimeout
+        Duration readTimeout,
+        int maxConnections
 ) {
 }
