@@ -92,6 +92,10 @@ public class Payment {
         return p;
     }
 
+    public void startApproving() {
+        changeStatus(PaymentStatus.APPROVING);
+    }
+
     public void approve(CardInfo card, LocalDateTime approvedAt) {
         changeStatus(PaymentStatus.DONE);
         this.card = card;

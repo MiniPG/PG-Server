@@ -169,6 +169,14 @@ class PaymentApiTest {
             assertThat(txs.getFirst().getStatus()).isEqualTo(TransactionStatus.DONE);
             assertThat(txs.getFirst().getAmount()).isEqualTo(15_000);
             assertThat(txs.getFirst().getCompletedAt()).isNotNull();
+
+            Payment saved = paymentRepository.findByPaymentKey(paymentKey).orElseThrow();
+            assertThat(saved.getStatus()).isEqualTo(PaymentStatus.DONE);
+            assertThat(saved.getApprovedAt()).isEqualTo(txs.getFirst().getCompletedAt());
+            assertThat(saved.getCard().getApproveNo()).isEqualTo("12345678");
+            assertThat(saved.getCard().getIssuerCode()).isEqualTo("11");
+            assertThat(saved.getCard().getMaskedNumber()).isEqualTo("1234-****-****-5678");
+            assertThat(saved.getBalanceAmount()).isEqualTo(15_000);
         }
 
         @Test
