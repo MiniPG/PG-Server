@@ -56,6 +56,9 @@ public class PaymentTransaction {
     @Column(name = "completed_at")
     private LocalDateTime completedAt;
 
+    @Column(name = "claimed_until")
+    private LocalDateTime claimedUntil;
+
     public static PaymentTransaction request(String transactionKey, String paymentKey, String mId, TransactionType type,
                                              long amount, String reason, LocalDateTime transactedAt) {
         if (amount <= 0) {

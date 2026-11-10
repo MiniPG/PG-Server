@@ -142,7 +142,7 @@ public class PaymentService {
             return findOwned(mId, request.paymentKey());
         }
 
-        if (result.approved()) {
+            if (result.approved()) {
             Payment payment = request.payment();
             CardInfo card = new CardInfo(result.issuerCode(), result.maskedNumber(), result.approveNo());
             int approved = paymentRepository.approveIfApproving(payment.getId(),

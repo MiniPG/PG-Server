@@ -49,13 +49,28 @@ public interface PaymentTransactionRepository extends JpaRepository<PaymentTrans
                                                          @Param("afterId") long afterId,
                                                          Pageable pageable);
 
-    @Query("""
-            select t from PaymentTransaction t
-            where t.status = com.sangyunpark99.pgserver.payment.domain.TransactionStatus.REQUESTED
-              and t.transactedAt < :deadline
-            order by t.id asc
-            """)
-    List<PaymentTransaction> findUnresolved(@Param("deadline") LocalDateTime deadline, Pageable pageable);
+    @Query(value = """
+            select id from payment_transaction
+            where status = 'REQUESTED'
+              and transacted_at < :deadline
+              and (claimed_until is null or claimed_until < :now)
+            order by id
+            limit :limit
+            for update skip locked
+            """, nativeQuery = true)
+    List<Long> findClaimableIds(@Param("deadline") LocalDateTime deadline,
+                                @Param("now") LocalDateTime now,
+                                @Param("limit") int limit);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("update PaymentTransaction t set t.claimedUntil = :claimedUntil where t.id in :ids")
+    int claim(@Param("ids") Collection<Long> ids, @Param("claimedUntil") LocalDateTime claimedUntil);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("update PaymentTransaction t set t.claimedUntil = null where t.id = :id")
+    int releaseClaim(@Param("id") Long id);
+
+    List<PaymentTransaction> findByIdInOrderByIdAsc(Collection<Long> ids);
 
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("""

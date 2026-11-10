@@ -5,6 +5,7 @@ import com.sangyunpark99.pgserver.card.CardApprovalResult;
 import com.sangyunpark99.pgserver.card.CardCancelResult;
 import com.sangyunpark99.pgserver.card.CardCompanyClient;
 import com.sangyunpark99.pgserver.common.exception.CardCompanyUnavailableException;
+import com.sangyunpark99.pgserver.common.time.TimeProvider;
 import com.sangyunpark99.pgserver.payment.domain.Payment;
 import com.sangyunpark99.pgserver.payment.domain.PaymentStatus;
 import com.sangyunpark99.pgserver.payment.domain.PaymentTransaction;
@@ -23,11 +24,14 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -67,6 +71,12 @@ class ReconciliationServiceTest {
 
     @Autowired
     private PaymentTransactionRepository transactionRepository;
+
+    @Autowired
+    private TransactionTemplate transactionTemplate;
+
+    @Autowired
+    private TimeProvider timeProvider;
 
     @MockitoBean
     private CardCompanyClient cardCompanyClient;
@@ -208,6 +218,50 @@ class ReconciliationServiceTest {
         System.out.printf("[대사 병렬] 확정 %d/150, 최대 동시 망취소 %d, %dms%n", aborted, maxInFlight.get(), elapsed);
         assertThat(aborted).isEqualTo(150);
         assertThat(maxInFlight.get()).isGreaterThan(1).isLessThanOrEqualTo(20);
+    }
+
+    @Test
+    @DisplayName("두 서버가 동시에 대사를 돌려도 결과 모름 거래마다 카드사 망취소는 한 번만 보낸다")
+    void reverseOnceAcrossServers() throws Exception {
+        List<String> paymentKeys = new ArrayList<>();
+        for (int i = 0; i < 200; i++) {
+            paymentKeys.add(unknownApproval(15_000));
+        }
+        Map<String, AtomicInteger> calls = new ConcurrentHashMap<>();
+        willAnswer(invocation -> {
+            calls.computeIfAbsent(invocation.getArgument(1), key -> new AtomicInteger()).incrementAndGet();
+            Thread.sleep(200);
+            return null;
+        }).given(cardCompanyClient).reverse(anyString(), anyString(), anyLong());
+
+        ReconciliationService otherServer = new ReconciliationService(transactionRepository, paymentRepository,
+                cardCompanyClient, transactionTemplate, timeProvider, 20);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        CountDownLatch start = new CountDownLatch(1);
+        LocalDateTime now = later();
+        var first = executor.submit(() -> {
+            start.await();
+            return reconciliationService.reconcile(now);
+        });
+        var second = executor.submit(() -> {
+            start.await();
+            return otherServer.reconcile(now);
+        });
+        start.countDown();
+        int resolvedByFirst = first.get(60, TimeUnit.SECONDS);
+        int resolvedBySecond = second.get(60, TimeUnit.SECONDS);
+        executor.shutdown();
+        otherServer.shutdown();
+
+        int totalCalls = paymentKeys.stream().mapToInt(key -> calls.getOrDefault(key, new AtomicInteger()).get()).sum();
+        long aborted = paymentKeys.stream()
+                .map(key -> paymentRepository.findByPaymentKey(key).orElseThrow().getStatus())
+                .filter(status -> status == PaymentStatus.ABORTED)
+                .count();
+        System.out.printf("[두 서버 대사] 확정 %d + %d, 결제 ABORTED %d/200, 카드사 망취소 %d회%n",
+                resolvedByFirst, resolvedBySecond, aborted, totalCalls);
+        assertThat(aborted).isEqualTo(200);
+        assertThat(totalCalls).isEqualTo(200);
     }
 
     private String unknownApproval(long amount) throws Exception {
