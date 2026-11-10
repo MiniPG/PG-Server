@@ -10,8 +10,9 @@ import com.sangyunpark99.pgserver.payment.domain.TransactionStatus;
 import com.sangyunpark99.pgserver.payment.domain.TransactionType;
 import com.sangyunpark99.pgserver.payment.infrastructure.PaymentRepository;
 import com.sangyunpark99.pgserver.payment.infrastructure.PaymentTransactionRepository;
-import lombok.RequiredArgsConstructor;
+import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -19,10 +20,14 @@ import org.springframework.transaction.support.TransactionTemplate;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicInteger;
 
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class ReconciliationService {
     public static final Duration THRESHOLD = Duration.ofSeconds(10);
     private static final int BATCH_SIZE = 100;
@@ -32,17 +37,66 @@ public class ReconciliationService {
     private final CardCompanyClient cardCompanyClient;
     private final TransactionTemplate transactionTemplate;
     private final TimeProvider timeProvider;
+    private final ExecutorService executor;
+
+    public ReconciliationService(PaymentTransactionRepository transactionRepository,
+                                 PaymentRepository paymentRepository,
+                                 CardCompanyClient cardCompanyClient,
+                                 TransactionTemplate transactionTemplate,
+                                 TimeProvider timeProvider,
+                                 @Value("${pg.reconciliation.concurrency:20}") int concurrency) {
+        this.transactionRepository = transactionRepository;
+        this.paymentRepository = paymentRepository;
+        this.cardCompanyClient = cardCompanyClient;
+        this.transactionTemplate = transactionTemplate;
+        this.timeProvider = timeProvider;
+        AtomicInteger sequence = new AtomicInteger();
+        this.executor = Executors.newFixedThreadPool(concurrency,
+                runnable -> new Thread(runnable, "reconciliation-" + sequence.incrementAndGet()));
+    }
+
+    @PreDestroy
+    void shutdown() {
+        executor.shutdown();
+    }
 
     public int reconcile(LocalDateTime now) {
-        List<PaymentTransaction> targets = transactionRepository.findUnresolved(
-                now.minus(THRESHOLD), PageRequest.of(0, BATCH_SIZE));
+        LocalDateTime deadline = now.minus(THRESHOLD);
         int resolved = 0;
-        for (PaymentTransaction tx : targets) {
-            if (resolve(tx)) {
+        while (true) {
+            List<PaymentTransaction> targets = transactionRepository.findUnresolved(
+                    deadline, PageRequest.of(0, BATCH_SIZE));
+            int batchResolved = resolveAll(targets);
+            resolved += batchResolved;
+            if (targets.size() < BATCH_SIZE || batchResolved == 0) {
+                return resolved;
+            }
+        }
+    }
+
+    private int resolveAll(List<PaymentTransaction> targets) {
+        List<Future<Boolean>> futures = targets.stream()
+                .map(tx -> executor.submit(() -> resolve(tx)))
+                .toList();
+        int resolved = 0;
+        for (Future<Boolean> future : futures) {
+            if (await(future)) {
                 resolved++;
             }
         }
         return resolved;
+    }
+
+    private boolean await(Future<Boolean> future) {
+        try {
+            return future.get();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return false;
+        } catch (ExecutionException e) {
+            log.atError().setMessage("대사 실패").setCause(e.getCause()).log();
+            return false;
+        }
     }
 
     private boolean resolve(PaymentTransaction tx) {
