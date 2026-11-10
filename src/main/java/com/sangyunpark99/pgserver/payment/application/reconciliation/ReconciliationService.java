@@ -13,8 +13,8 @@ import com.sangyunpark99.pgserver.payment.infrastructure.PaymentTransactionRepos
 import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Duration;
@@ -31,11 +31,13 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class ReconciliationService {
     public static final Duration THRESHOLD = Duration.ofSeconds(10);
     private static final int BATCH_SIZE = 100;
+    private static final Duration CLAIM_LEASE = Duration.ofSeconds(60);
 
     private final PaymentTransactionRepository transactionRepository;
     private final PaymentRepository paymentRepository;
     private final CardCompanyClient cardCompanyClient;
     private final TransactionTemplate transactionTemplate;
+    private final TransactionTemplate claimTemplate;
     private final TimeProvider timeProvider;
     private final ExecutorService executor;
 
@@ -49,6 +51,8 @@ public class ReconciliationService {
         this.paymentRepository = paymentRepository;
         this.cardCompanyClient = cardCompanyClient;
         this.transactionTemplate = transactionTemplate;
+        this.claimTemplate = new TransactionTemplate(transactionTemplate.getTransactionManager());
+        this.claimTemplate.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
         this.timeProvider = timeProvider;
         AtomicInteger sequence = new AtomicInteger();
         this.executor = Executors.newFixedThreadPool(concurrency,
@@ -64,14 +68,28 @@ public class ReconciliationService {
         LocalDateTime deadline = now.minus(THRESHOLD);
         int resolved = 0;
         while (true) {
-            List<PaymentTransaction> targets = transactionRepository.findUnresolved(
-                    deadline, PageRequest.of(0, BATCH_SIZE));
+            List<PaymentTransaction> targets = claim(deadline, now);
             int batchResolved = resolveAll(targets);
             resolved += batchResolved;
             if (targets.size() < BATCH_SIZE || batchResolved == 0) {
                 return resolved;
             }
         }
+    }
+
+    private List<PaymentTransaction> claim(LocalDateTime deadline, LocalDateTime now) {
+        return claimTemplate.execute(status -> {
+            List<Long> ids = transactionRepository.findClaimableIds(deadline, now, BATCH_SIZE);
+            if (ids.isEmpty()) {
+                return List.of();
+            }
+            transactionRepository.claim(ids, now.plus(CLAIM_LEASE));
+            return transactionRepository.findByIdInOrderByIdAsc(ids);
+        });
+    }
+
+    private void release(PaymentTransaction tx) {
+        transactionTemplate.executeWithoutResult(status -> transactionRepository.releaseClaim(tx.getId()));
     }
 
     private int resolveAll(List<PaymentTransaction> targets) {
@@ -108,6 +126,7 @@ public class ReconciliationService {
                     .addKeyValue("type", tx.getType())
                     .addKeyValue("cause", e.getCause() == null ? e.getMessage() : e.getCause().toString())
                     .log();
+            release(tx);
             return false;
         } catch (RuntimeException e) {
             log.atError().setMessage("대사 실패")
@@ -115,6 +134,7 @@ public class ReconciliationService {
                     .addKeyValue("type", tx.getType())
                     .setCause(e)
                     .log();
+            release(tx);
             return false;
         }
     }
