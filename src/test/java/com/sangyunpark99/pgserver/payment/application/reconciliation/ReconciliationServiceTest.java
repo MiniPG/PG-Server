@@ -25,17 +25,21 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.BDDMockito.willAnswer;
 import static org.mockito.BDDMockito.willDoNothing;
 import static org.mockito.BDDMockito.willReturn;
 import static org.mockito.BDDMockito.willThrow;
@@ -175,6 +179,35 @@ class ReconciliationServiceTest {
                 payment.getBalanceAmount(), payment.getStatus(), cancelTx(paymentKey).getStatus());
         assertThat(payment.getBalanceAmount()).isEqualTo(10_000);
         assertThat(cancelTx(paymentKey).getStatus()).isEqualTo(TransactionStatus.FAILED);
+    }
+
+    @Test
+    @DisplayName("결과 모름이 한 묶음(100건)보다 많아도 한 번 실행에서 모두 확정하고, 카드사 망취소는 최대 동시 수까지 함께 보낸다")
+    void reconcileAllConcurrently() throws Exception {
+        List<String> paymentKeys = new ArrayList<>();
+        for (int i = 0; i < 150; i++) {
+            paymentKeys.add(unknownApproval(15_000));
+        }
+        AtomicInteger inFlight = new AtomicInteger();
+        AtomicInteger maxInFlight = new AtomicInteger();
+        willAnswer(invocation -> {
+            maxInFlight.accumulateAndGet(inFlight.incrementAndGet(), Math::max);
+            Thread.sleep(50);
+            inFlight.decrementAndGet();
+            return null;
+        }).given(cardCompanyClient).reverse(anyString(), anyString(), anyLong());
+
+        long start = System.currentTimeMillis();
+        reconciliationService.reconcile(later());
+        long elapsed = System.currentTimeMillis() - start;
+
+        long aborted = paymentKeys.stream()
+                .map(key -> paymentRepository.findByPaymentKey(key).orElseThrow().getStatus())
+                .filter(status -> status == PaymentStatus.ABORTED)
+                .count();
+        System.out.printf("[대사 병렬] 확정 %d/150, 최대 동시 망취소 %d, %dms%n", aborted, maxInFlight.get(), elapsed);
+        assertThat(aborted).isEqualTo(150);
+        assertThat(maxInFlight.get()).isGreaterThan(1).isLessThanOrEqualTo(20);
     }
 
     private String unknownApproval(long amount) throws Exception {
