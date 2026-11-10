@@ -34,6 +34,7 @@ public class CardClientConfig {
         return HttpClients.custom()
                 .setConnectionManager(connectionManager)
                 .evictIdleConnections(IDLE_EVICTION)
+                .disableAutomaticRetries()
                 .build();
     }
 
