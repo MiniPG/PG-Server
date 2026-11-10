@@ -40,8 +40,8 @@ public class HttpCardCompanyClient implements CardCompanyClient {
 
     @Override
     public void reverse(String transactionKey, String paymentKey, long amount) {
-        ReversalResponse response = post("/v1/approvals/" + transactionKey + "/reversal",
-                new ReversalRequest(paymentKey, amount), ReversalResponse.class);
+        ReversalResponse response = post("/v1/approvals/{transactionKey}/reversal",
+                new ReversalRequest(paymentKey, amount), ReversalResponse.class, transactionKey);
         if (!REVERSED.equals(response.status()) && !REJECTED.equals(response.status())) {
             throw new CardCompanyUnavailableException("망취소 결과가 올바르지 않습니다. status=" + response.status(), null);
         }
@@ -77,10 +77,10 @@ public class HttpCardCompanyClient implements CardCompanyClient {
         return post("/v1/transactions/lookup", new LookupRequest(transactionKeys), LookupResponse.class).transactions();
     }
 
-    private <T> T post(String uri, Object body, Class<T> responseType) {
+    private <T> T post(String uriTemplate, Object body, Class<T> responseType, Object... uriVariables) {
         try {
             T response = restClient.post()
-                    .uri(uri)
+                    .uri(uriTemplate, uriVariables)
                     .contentType(MediaType.APPLICATION_JSON)
                     .body(body)
                     .retrieve()
