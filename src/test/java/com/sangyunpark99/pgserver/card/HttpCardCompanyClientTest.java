@@ -1,20 +1,28 @@
 package com.sangyunpark99.pgserver.card;
 
 import com.sangyunpark99.pgserver.common.exception.CardCompanyUnavailableException;
+import io.micrometer.core.instrument.Meter;
+import io.micrometer.core.instrument.observation.DefaultMeterObservationHandler;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.micrometer.observation.ObservationRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
+import org.springframework.test.web.client.ExpectedCount;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
 
 import java.net.SocketTimeoutException;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.hamcrest.Matchers.startsWith;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.content;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
@@ -32,6 +40,31 @@ class HttpCardCompanyClientTest {
         RestClient.Builder builder = RestClient.builder().baseUrl("http://card");
         server = MockRestServiceServer.bindTo(builder).build();
         client = new HttpCardCompanyClient(builder.build());
+    }
+
+    @Test
+    @DisplayName("거래 키가 달라도 카드사 호출 지표의 uri 태그는 경로 템플릿 하나로 남는다")
+    void reversalUriTagIsTemplate() {
+        SimpleMeterRegistry meters = new SimpleMeterRegistry();
+        ObservationRegistry observations = ObservationRegistry.create();
+        observations.observationConfig().observationHandler(new DefaultMeterObservationHandler(meters));
+        RestClient.Builder builder = RestClient.builder().baseUrl("http://card").observationRegistry(observations);
+        MockRestServiceServer observedServer = MockRestServiceServer.bindTo(builder).build();
+        observedServer.expect(ExpectedCount.times(3), requestTo(startsWith("http://card/v1/approvals/tx_")))
+                .andRespond(withSuccess("""
+                        {"transactionKey":"tx","status":"REVERSED"}
+                        """, MediaType.APPLICATION_JSON));
+        HttpCardCompanyClient observedClient = new HttpCardCompanyClient(builder.build());
+
+        observedClient.reverse("tx_1", "pk_1", 10_000);
+        observedClient.reverse("tx_2", "pk_2", 10_000);
+        observedClient.reverse("tx_3", "pk_3", 10_000);
+
+        Set<String> uris = meters.find("http.client.requests").meters().stream()
+                .map(Meter::getId)
+                .map(id -> id.getTag("uri"))
+                .collect(Collectors.toSet());
+        assertThat(uris).containsExactly("/v1/approvals/{transactionKey}/reversal");
     }
 
     @Test
