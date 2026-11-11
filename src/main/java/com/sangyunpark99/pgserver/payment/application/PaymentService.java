@@ -1,5 +1,6 @@
 package com.sangyunpark99.pgserver.payment.application;
 
+import com.sangyunpark99.pgserver.card.CardCallBulkhead;
 import com.sangyunpark99.pgserver.common.time.TimeProvider;
 import com.sangyunpark99.pgserver.common.exception.CardCancelFailedException;
 import com.sangyunpark99.pgserver.common.exception.CardCompanyUnavailableException;
@@ -36,6 +37,7 @@ public class PaymentService {
     private final PaymentMetrics metrics;
     private final TimeProvider timeProvider;
     private final TransactionTemplate transactionTemplate;
+    private final CardCallBulkhead cardCallBulkhead;
 
     @Transactional
     public Payment create(CreatePaymentCommand command) {
@@ -57,6 +59,14 @@ public class PaymentService {
         return payment;
     }
 
+    public Payment confirm(ConfirmPaymentCommand command) {
+        return cardCallBulkhead.execute(() -> doConfirm(command));
+    }
+
+    public Payment cancel(CancelPaymentCommand command) {
+        return cardCallBulkhead.execute(() -> doCancel(command));
+    }
+
     public Payment getByPaymentKey(String mId, String paymentKey) {
         return findOwned(mId, paymentKey);
     }
@@ -66,7 +76,7 @@ public class PaymentService {
                 .orElseThrow(() -> new PgException(ErrorCode.NOT_FOUND_PAYMENT));
     }
 
-    public Payment confirm(ConfirmPaymentCommand command) {
+    private Payment doConfirm(ConfirmPaymentCommand command) {
         ApprovalRequest request = transactionTemplate.execute(status -> startApproval(command));
 
         CardApprovalResult result;
@@ -182,7 +192,7 @@ public class PaymentService {
         }
     }
 
-    public Payment cancel(CancelPaymentCommand command) {
+    private Payment doCancel(CancelPaymentCommand command) {
         CancelRequest request = transactionTemplate.execute(status -> startCancel(command));
 
         CardCancelResult result;

@@ -20,21 +20,25 @@ import java.util.Set;
 @Slf4j
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+    private static final Set<String> DUPLICATE_CONSTRAINTS = Set.of("uk_payment_mid_order_id");
+
     public record ErrorResponse(String code, String message) {}
 
     @ExceptionHandler(PgException.class)
     public ResponseEntity<ErrorResponse> handlePgException(PgException e) {
         ErrorCode code = e.getErrorCode();
-        if (code.getStatus().is5xxServerError()) {
+
+        if(code == ErrorCode.CARD_COMPANY_BUSY) {
+            return toResponse(code);
+        }
+
+        if(code.getStatus().is5xxServerError()) {
             log.warn("[{}] {}", code.name(), e.getMessage(), e);
         }
+
         return ResponseEntity.status(code.getStatus())
                 .body(new ErrorResponse(code.name(), e.getMessage()));
     }
-
-    // DataIntegrityViolationException은 유니크 제약뿐 아니라 null·길이·외래 키 위반도 포함한다.
-    // 중복으로 의도한 유니크 제약을 위반했을 때만 DUPLICATED로 응답하고, 나머지는 예상하지 못한 오류로 드러낸다.
-    private static final Set<String> DUPLICATE_CONSTRAINTS = Set.of("uk_payment_mid_order_id");
 
     @ExceptionHandler(DataIntegrityViolationException.class)
     public ResponseEntity<ErrorResponse> handleDataIntegrity(DataIntegrityViolationException e) {
