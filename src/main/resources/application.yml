@@ -34,6 +34,8 @@ pg:
   settlement:
     fee-rate: 0.03
     cron: "0 0 2 * * *"
+  merchant-auth:
+    cache-ttl: 30s
 
 server:
   tomcat:

@@ -1,5 +1,6 @@
 package com.sangyunpark99.pgserver.merchant.application;
 
+import com.github.benmanes.caffeine.cache.Cache;
 import com.sangyunpark99.pgserver.common.exception.ErrorCode;
 import com.sangyunpark99.pgserver.common.exception.PgException;
 import com.sangyunpark99.pgserver.merchant.domain.Merchant;
@@ -13,17 +14,34 @@ public class MerchantAuthenticator {
     private static final String BEARER_PREFIX = "Bearer ";
 
     private final MerchantRepository merchantRepository;
+    private final Cache<String, MerchantAuth> cache;
 
     public String authenticate(String authorizationHeader) {
-        String secretKey = extractSecretKey(authorizationHeader);
+        String hash = SecretKeyHasher.hash(extractSecretKey(authorizationHeader));
+        return check(load(hash));
+    }
 
-        Merchant merchant = merchantRepository.findBySecretKeyHash(SecretKeyHasher.hash(secretKey))
+    public String authenticatedCached(String authorizationHeader) {
+        String hash = SecretKeyHasher.hash(extractSecretKey(authorizationHeader));
+        MerchantAuth cached = cache.getIfPresent(hash);
+        return check(cached != null ? cached : load(hash));
+    }
+
+    private MerchantAuth load(String hash) {
+        Merchant merchant = merchantRepository.findBySecretKeyHash(hash)
                 .orElseThrow(() -> new PgException(ErrorCode.UNAUTHORIZED_KEY));
+        MerchantAuth auth = new MerchantAuth(merchant.getMId(), merchant.isActive());
+        cache.put(hash, auth);
 
-        if (!merchant.isActive()) {
+        return auth;
+    }
+
+    private String check(MerchantAuth auth) {
+        if(!auth.active()) {
             throw new PgException(ErrorCode.FORBIDDEN_MERCHANT);
         }
-        return merchant.getMId();
+
+        return auth.mId();
     }
 
     private String extractSecretKey(String header) {

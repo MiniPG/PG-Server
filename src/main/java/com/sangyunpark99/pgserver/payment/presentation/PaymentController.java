@@ -6,6 +6,7 @@ import com.sangyunpark99.pgserver.payment.application.CreatePaymentCommand;
 import com.sangyunpark99.pgserver.payment.application.PaymentService;
 import com.sangyunpark99.pgserver.payment.domain.Payment;
 import com.sangyunpark99.pgserver.merchant.presentation.AuthenticatedMerchant;
+import com.sangyunpark99.pgserver.merchant.presentation.CachedAuth;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
@@ -19,6 +20,7 @@ public class PaymentController {
 
     private final PaymentService paymentService;
 
+    @CachedAuth
     @PostMapping
     public PaymentResponse create(@AuthenticatedMerchant String mId,
                                   @Valid @RequestBody CreatePaymentRequest request) {
@@ -40,12 +42,14 @@ public class PaymentController {
         return PaymentResponse.from(payment, List.of());
     }
 
+    @CachedAuth
     @GetMapping("/{paymentKey}")
     public PaymentResponse getByPaymentKey(@AuthenticatedMerchant String mId,
                                            @PathVariable String paymentKey) {
         return toResponse(paymentService.getByPaymentKey(mId, paymentKey));
     }
 
+    @CachedAuth
     @GetMapping("/orders/{orderId}")
     public PaymentResponse getByOrderId(@AuthenticatedMerchant String mId,
                                         @PathVariable String orderId) {
