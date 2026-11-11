@@ -8,6 +8,7 @@ import lombok.RequiredArgsConstructor;
 import org.slf4j.MDC;
 import org.springframework.http.HttpHeaders;
 import org.springframework.stereotype.Component;
+import org.springframework.web.method.HandlerMethod;
 import org.springframework.web.servlet.HandlerInterceptor;
 
 @Component
@@ -19,9 +20,15 @@ public class MerchantAuthInterceptor implements HandlerInterceptor {
 
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) {
-        String mId = authenticator.authenticate(request.getHeader(HttpHeaders.AUTHORIZATION));
+        String header = request.getHeader(HttpHeaders.AUTHORIZATION);
+        String mId = usesCache(handler) ? authenticator.authenticatedCached(header): authenticator.authenticate(header);
         request.setAttribute(MERCHANT_ID_ATTRIBUTE, mId);
         MDC.put(RequestIdFilter.MDC_MERCHANT_ID, mId);
+
         return true;
+    }
+
+    private boolean usesCache(Object handler) {
+        return handler instanceof HandlerMethod method && method.hasMethodAnnotation(CachedAuth.class);
     }
 }

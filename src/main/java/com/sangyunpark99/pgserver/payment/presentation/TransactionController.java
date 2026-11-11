@@ -3,6 +3,7 @@ package com.sangyunpark99.pgserver.payment.presentation;
 import com.sangyunpark99.pgserver.payment.application.TransactionSearchCommand;
 import com.sangyunpark99.pgserver.payment.application.TransactionService;
 import com.sangyunpark99.pgserver.merchant.presentation.AuthenticatedMerchant;
+import com.sangyunpark99.pgserver.merchant.presentation.CachedAuth;
 import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.*;
@@ -17,6 +18,7 @@ import java.util.List;
 public class TransactionController {
     private final TransactionService transactionService;
 
+    @CachedAuth
     @GetMapping
     public List<TransactionResponse> search(
             @AuthenticatedMerchant String mId,
