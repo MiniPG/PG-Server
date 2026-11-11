@@ -27,6 +27,8 @@ card:
   connect-timeout: 1s
   read-timeout: 3s
   max-connections: 200
+  bulkhead:
+    max-concurrent-calls: 150
 
 pg:
   settlement:
