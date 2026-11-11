@@ -15,7 +15,6 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.HttpHeaders;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
@@ -42,9 +41,6 @@ class PaymentMetricsTest {
 
     @Autowired
     private JdbcTemplate jdbc;
-
-    @Autowired
-    private TransactionTemplate transactionTemplate;
 
     @BeforeEach
     void setUp() {
@@ -103,10 +99,10 @@ class PaymentMetricsTest {
 
         assertThat(gauge("payment.transactions.requested.stale")).isEqualTo(before);
 
-        transactionTemplate.executeWithoutResult(status -> jdbc.update("""
+        jdbc.update("""
                 update payment_transaction set transacted_at = transacted_at - interval 11 second
                 where id = (select id from (select max(id) as id from payment_transaction where status = 'REQUESTED') latest)
-                """));
+                """);
 
         assertThat(gauge("payment.transactions.requested.stale")).isEqualTo(before + 1);
     }
