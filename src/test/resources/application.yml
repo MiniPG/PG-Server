@@ -3,6 +3,7 @@ spring:
     url: jdbc:tc:mysql:8.0:///pg?TC_DAEMON=true
     driver-class-name: org.testcontainers.jdbc.ContainerDatabaseDriver
     hikari:
+      auto-commit: false
       connection-init-sql: SET SESSION innodb_lock_wait_timeout = 5
       data-source-properties:
         cachePrepStmts: true
@@ -14,6 +15,8 @@ spring:
     open-in-view: false
     properties:
       hibernate:
+        connection:
+          provider_disables_autocommit: true
         query:
           in_clause_parameter_padding: true
 

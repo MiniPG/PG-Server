@@ -39,6 +39,7 @@ class QueryCountExperimentTest {
 
     private static final String MERCHANT = "m_query_count";
     private static final int REQUESTS = 100;
+    private static final boolean AUTOCOMMIT_ON = "true".equals(System.getenv("AUTOCOMMIT_ON"));
 
     private static final MySQLContainer MYSQL = new MySQLContainer("mysql:8.0")
             .withUsername("root")
@@ -56,6 +57,8 @@ class QueryCountExperimentTest {
         registry.add("spring.datasource.username", MYSQL::getUsername);
         registry.add("spring.datasource.password", MYSQL::getPassword);
         registry.add("spring.datasource.driver-class-name", () -> "com.mysql.cj.jdbc.Driver");
+        registry.add("spring.datasource.hikari.auto-commit", () -> String.valueOf(AUTOCOMMIT_ON));
+        registry.add("spring.jpa.properties.hibernate.connection.provider_disables_autocommit", () -> String.valueOf(!AUTOCOMMIT_ON));
     }
 
     @Autowired
@@ -77,6 +80,7 @@ class QueryCountExperimentTest {
 
         List<String[]> created = new ArrayList<>();
         StringBuilder report = new StringBuilder();
+        report.append("커넥션 autocommit 기본값: ").append(AUTOCOMMIT_ON ? "true" : "false").append("\n");
         report.append("요청 ").append(REQUESTS).append("번씩, 요청 1번당 평균 쿼리 수\n\n");
 
         report.append(measure("생성 POST /v1/payments", () -> {
@@ -117,7 +121,7 @@ class QueryCountExperimentTest {
         }));
 
         System.out.println(report);
-        Path out = Path.of("build/experiment/query-count.txt");
+        Path out = Path.of("build/experiment/query-count-autocommit-" + (AUTOCOMMIT_ON ? "on" : "off") + ".txt");
         Files.createDirectories(out.getParent());
         Files.writeString(out, report.toString());
     }
