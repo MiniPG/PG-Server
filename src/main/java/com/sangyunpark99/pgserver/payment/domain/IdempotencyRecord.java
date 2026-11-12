@@ -27,28 +27,40 @@ public class IdempotencyRecord {
     @Column(name = "operation", nullable = false, length = 20)
     private IdempotentOperation operation;
 
-    @Column(name = "request_fingerprint", nullable = false, length = 300)
+    @Column(name = "request_fingerprint", nullable = false, length = 64)
     private String requestFingerprint;
+
+    @Column(name = "payment_key", nullable = false, length = 200)
+    private String paymentKey;
 
     @Column(name = "transaction_id", nullable = false)
     private Long transactionId;
+
+    @Column(name = "response_body", columnDefinition = "TEXT")
+    private String responseBody;
 
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
 
     public static IdempotencyRecord of(String mId, String idempotencyKey, IdempotentOperation operation,
-                                       String requestFingerprint, Long transactionId, LocalDateTime now) {
+                                       String requestFingerprint, String paymentKey, Long transactionId,
+                                       LocalDateTime now) {
         IdempotencyRecord r = new IdempotencyRecord();
         r.mId = mId;
         r.idempotencyKey = idempotencyKey;
         r.operation = operation;
         r.requestFingerprint = requestFingerprint;
+        r.paymentKey = paymentKey;
         r.transactionId = transactionId;
         r.createdAt = now;
         return r;
     }
 
-    public boolean sameRequest(IdempotentOperation operation, String requestFingerprint) {
-        return this.operation == operation && this.requestFingerprint.equals(requestFingerprint);
+    public boolean sameRequest(String requestFingerprint) {
+        return this.requestFingerprint.equals(requestFingerprint);
+    }
+
+    public boolean hasResponse() {
+        return responseBody != null;
     }
 }

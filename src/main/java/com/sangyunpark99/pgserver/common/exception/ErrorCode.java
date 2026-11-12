@@ -34,6 +34,7 @@ public enum ErrorCode {
     CARD_COMPANY_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "카드사 응답을 받지 못했습니다. 결제 상태를 조회해 확인해 주세요."),
     CARD_COMPANY_BUSY(HttpStatus.SERVICE_UNAVAILABLE, "카드사 요청이 몰려 처리하지 못했습니다. 잠시 후 같은 요청을 다시 보내 주세요."),
     CANCEL_IN_PROGRESS(HttpStatus.CONFLICT, "취소를 처리하고 있습니다. 결제를 조회해 결과를 확인해 주세요."),
+    INVALID_IDEMPOTENCY_KEY(HttpStatus.BAD_REQUEST, "Idempotency-Key는 300자 이하여야 합니다."),
     IDEMPOTENCY_KEY_REUSED(HttpStatus.UNPROCESSABLE_ENTITY, "같은 Idempotency-Key로 다른 요청을 보냈습니다.");
 
     private final HttpStatus status;

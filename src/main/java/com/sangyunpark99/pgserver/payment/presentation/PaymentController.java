@@ -3,7 +3,9 @@ package com.sangyunpark99.pgserver.payment.presentation;
 import com.sangyunpark99.pgserver.payment.application.CancelPaymentCommand;
 import com.sangyunpark99.pgserver.payment.application.ConfirmPaymentCommand;
 import com.sangyunpark99.pgserver.payment.application.CreatePaymentCommand;
+import com.sangyunpark99.pgserver.payment.application.PaymentResponse;
 import com.sangyunpark99.pgserver.payment.application.PaymentService;
+import com.sangyunpark99.pgserver.common.idempotency.IdempotencyFilter;
 import com.sangyunpark99.pgserver.payment.domain.Payment;
 import com.sangyunpark99.pgserver.merchant.presentation.AuthenticatedMerchant;
 import com.sangyunpark99.pgserver.merchant.presentation.CachedAuth;
@@ -59,11 +61,11 @@ public class PaymentController {
     @PostMapping("/{paymentKey}/cancel")
     public PaymentResponse cancel(@AuthenticatedMerchant String mId,
                                   @PathVariable String paymentKey,
-                                  @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
+                                  @RequestHeader(value = IdempotencyFilter.HEADER, required = false) String idempotencyKey,
+                                  @RequestAttribute(value = IdempotencyFilter.FINGERPRINT_ATTRIBUTE, required = false) String fingerprint,
                                   @RequestBody CancelPaymentRequest request) {
-        Payment payment = paymentService.cancel(new CancelPaymentCommand(
-                mId, paymentKey, request.cancelReason(), request.cancelAmount(), idempotencyKey));
-        return toResponse(payment);
+        return paymentService.cancel(new CancelPaymentCommand(
+                mId, paymentKey, request.cancelReason(), request.cancelAmount(), idempotencyKey, fingerprint));
     }
 
     private PaymentResponse toResponse(Payment payment) {
