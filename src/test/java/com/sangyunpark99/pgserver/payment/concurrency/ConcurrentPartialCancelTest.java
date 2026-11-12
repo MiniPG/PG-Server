@@ -82,7 +82,7 @@ class ConcurrentPartialCancelTest {
                 ready.countDown();
                 try {
                     start.await();
-                    paymentService.cancel(new CancelPaymentCommand(mId, created.getPaymentKey(), "부분 반품", CANCEL));
+                    paymentService.cancel(new CancelPaymentCommand(mId, created.getPaymentKey(), "부분 반품", CANCEL, null));
                     results.add("성공");
                 } catch (Exception e) {
                     results.add(e.getClass().getSimpleName() + ": " + e.getMessage());
@@ -132,7 +132,7 @@ class ConcurrentPartialCancelTest {
                 ready.countDown();
                 try {
                     start.await();
-                    paymentService.cancel(new CancelPaymentCommand(mId, created.getPaymentKey(), "전액 반품", null));
+                    paymentService.cancel(new CancelPaymentCommand(mId, created.getPaymentKey(), "전액 반품", null, null));
                     results.add("성공");
                 } catch (Exception e) {
                     results.add(e.getClass().getSimpleName() + ": " + e.getMessage());
