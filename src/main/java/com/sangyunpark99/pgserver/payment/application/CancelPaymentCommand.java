@@ -4,6 +4,6 @@ public record CancelPaymentCommand(
         String mId,
         String paymentKey,
         String cancelReason,
-        Long cancelAmount
-) {
+        Long cancelAmount,
+        String idempotencyKey) {
 }

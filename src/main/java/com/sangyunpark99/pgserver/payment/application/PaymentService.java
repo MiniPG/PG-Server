@@ -10,15 +10,19 @@ import com.sangyunpark99.pgserver.card.CardApprovalResult;
 import com.sangyunpark99.pgserver.card.CardCancelResult;
 import com.sangyunpark99.pgserver.card.CardCompanyClient;
 import com.sangyunpark99.pgserver.payment.domain.CardInfo;
+import com.sangyunpark99.pgserver.payment.domain.IdempotencyRecord;
+import com.sangyunpark99.pgserver.payment.domain.IdempotentOperation;
 import com.sangyunpark99.pgserver.payment.domain.Payment;
 import com.sangyunpark99.pgserver.payment.domain.PaymentStatus;
 import com.sangyunpark99.pgserver.payment.domain.PaymentTransaction;
 import com.sangyunpark99.pgserver.payment.domain.TransactionStatus;
 import com.sangyunpark99.pgserver.payment.domain.TransactionType;
+import com.sangyunpark99.pgserver.payment.infrastructure.IdempotencyRecordRepository;
 import com.sangyunpark99.pgserver.payment.infrastructure.PaymentRepository;
 import com.sangyunpark99.pgserver.payment.infrastructure.PaymentTransactionRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -38,6 +42,7 @@ public class PaymentService {
     private final TimeProvider timeProvider;
     private final TransactionTemplate transactionTemplate;
     private final CardCallBulkhead cardCallBulkhead;
+    private final IdempotencyRecordRepository idempotencyRecordRepository;
 
     @Transactional
     public Payment create(CreatePaymentCommand command) {
@@ -193,7 +198,21 @@ public class PaymentService {
     }
 
     private Payment doCancel(CancelPaymentCommand command) {
-        CancelRequest request = transactionTemplate.execute(status -> startCancel(command));
+        Long previous = findPreviousCancel(command);
+        if (previous != null) {
+            return replayCancel(command, previous);
+        }
+
+        CancelRequest request;
+        try {
+            request = transactionTemplate.execute(status -> startCancel(command));
+        } catch (DataIntegrityViolationException e) {
+            Long winner = findPreviousCancel(command);
+            if (winner == null) {
+                throw e;
+            }
+            return replayCancel(command, winner);
+        }
 
         CardCancelResult result;
         try {
@@ -244,6 +263,10 @@ public class PaymentService {
                 cancelAmount, command.cancelReason(), timeProvider.now()
         );
         transactionRepository.save(tx);
+        if (command.idempotencyKey() != null) {
+            idempotencyRecordRepository.save(IdempotencyRecord.of(command.mId(), command.idempotencyKey(),
+                    IdempotentOperation.CANCEL, cancelFingerprint(command), tx.getId(), timeProvider.now()));
+        }
         return new CancelRequest(payment.getId(), payment.getPaymentKey(), tx.getId(), tx.getTransactionKey(),
                 payment.getCard().getApproveNo(), cancelAmount);
     }
@@ -265,6 +288,34 @@ public class PaymentService {
                 .addKeyValue("balanceAmount", payment.getBalanceAmount())
                 .log();
         return payment;
+    }
+
+    private Long findPreviousCancel(CancelPaymentCommand command) {
+        if (command.idempotencyKey() == null) {
+            return null;
+        }
+        return idempotencyRecordRepository.findByMerchantAndKey(command.mId(), command.idempotencyKey())
+                .map(previous -> {
+                    if (!previous.sameRequest(IdempotentOperation.CANCEL, cancelFingerprint(command))) {
+                        throw new PgException(ErrorCode.IDEMPOTENCY_KEY_REUSED);
+                    }
+                    return previous.getTransactionId();
+                })
+                .orElse(null);
+    }
+
+    private Payment replayCancel(CancelPaymentCommand command, Long transactionId) {
+        PaymentTransaction tx = transactionRepository.findById(transactionId)
+                .orElseThrow(() -> new IllegalStateException("멱등 키에 연결된 취소 거래가 없습니다. id=" + transactionId));
+        return switch (tx.getStatus()) {
+            case DONE -> findOwned(command.mId(), command.paymentKey());
+            case REQUESTED -> throw new PgException(ErrorCode.CANCEL_IN_PROGRESS);
+            case FAILED -> throw new PgException(ErrorCode.CANCEL_FAILED);
+        };
+    }
+
+    private String cancelFingerprint(CancelPaymentCommand command) {
+        return command.paymentKey() + "|" + command.cancelAmount();
     }
 
     private record CancelRequest(Long paymentId, String paymentKey, Long transactionId, String transactionKey,

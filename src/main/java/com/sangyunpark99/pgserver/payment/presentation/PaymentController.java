@@ -59,10 +59,10 @@ public class PaymentController {
     @PostMapping("/{paymentKey}/cancel")
     public PaymentResponse cancel(@AuthenticatedMerchant String mId,
                                   @PathVariable String paymentKey,
+                                  @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
                                   @RequestBody CancelPaymentRequest request) {
-        Payment payment = paymentService.cancel(
-                new CancelPaymentCommand(mId, paymentKey, request.cancelReason(), request.cancelAmount())
-        );
+        Payment payment = paymentService.cancel(new CancelPaymentCommand(
+                mId, paymentKey, request.cancelReason(), request.cancelAmount(), idempotencyKey));
         return toResponse(payment);
     }
 
