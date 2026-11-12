@@ -24,7 +24,6 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.ObjectMapper;
 
@@ -47,8 +46,15 @@ public class PaymentService {
     private final IdempotencyRecordRepository idempotencyRecordRepository;
     private final ObjectMapper objectMapper;
 
-    @Transactional
-    public Payment create(CreatePaymentCommand command) {
+    public PaymentResponse create(CreatePaymentCommand command) {
+        try {
+            return transactionTemplate.execute(status -> doCreate(command));
+        } catch (DataIntegrityViolationException e) {
+            return replayIfDuplicated(command.mId(), command.idempotencyKey(), createFingerprint(command), e);
+        }
+    }
+
+    private PaymentResponse doCreate(CreatePaymentCommand command) {
         Payment payment = Payment.create(
                 generatePaymentKey(),
                 command.orderId(),
@@ -59,12 +65,18 @@ public class PaymentService {
                 timeProvider.now()
         );
         paymentRepository.save(payment);
+        PaymentResponse response = PaymentResponse.from(payment, List.of());
+        if (command.idempotencyKey() != null) {
+            idempotencyRecordRepository.save(IdempotencyRecord.of(command.mId(), command.idempotencyKey(),
+                    IdempotentOperation.CREATE, createFingerprint(command), payment.getPaymentKey(), null,
+                    timeProvider.now()).respondedWith(objectMapper.writeValueAsString(response)));
+        }
         log.atInfo().setMessage("결제 생성")
                 .addKeyValue("paymentKey", payment.getPaymentKey())
                 .addKeyValue("orderId", payment.getOrderId())
                 .addKeyValue("amount", payment.getTotalAmount())
                 .log();
-        return payment;
+        return response;
     }
 
     public PaymentResponse confirm(ConfirmPaymentCommand command) {
@@ -298,9 +310,16 @@ public class PaymentService {
     }
 
     public PaymentResponse replay(String mId, IdempotencyRecord record) {
+        if (record.hasResponse()) {
+            return objectMapper.readValue(record.getResponseBody(), PaymentResponse.class);
+        }
+        if (record.getOperation() == IdempotentOperation.CREATE) {
+            throw new IllegalStateException("생성 멱등 기록에 응답이 없습니다. id=" + record.getId());
+        }
         PaymentTransaction tx = transactionRepository.findById(record.getTransactionId())
                 .orElseThrow(() -> new IllegalStateException("멱등 키에 연결된 거래가 없습니다. id=" + record.getTransactionId()));
         return switch (record.getOperation()) {
+            case CREATE -> throw new IllegalStateException("생성 멱등 기록에 응답이 없습니다. id=" + record.getId());
             case CONFIRM -> switch (tx.getStatus()) {
                 case REQUESTED -> throw new PgException(ErrorCode.APPROVAL_IN_PROGRESS);
                 case DONE, FAILED -> PaymentResponse.from(findOwned(mId, record.getPaymentKey()), List.of());
@@ -340,6 +359,11 @@ public class PaymentService {
         if (idempotencyRecordId != null) {
             idempotencyRecordRepository.saveResponse(idempotencyRecordId, objectMapper.writeValueAsString(response));
         }
+    }
+
+    private String createFingerprint(CreatePaymentCommand command) {
+        return Objects.requireNonNullElse(command.requestFingerprint(),
+                command.orderId() + "|" + command.amount());
     }
 
     private String confirmFingerprint(ConfirmPaymentCommand command) {

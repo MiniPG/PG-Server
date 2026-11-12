@@ -33,7 +33,7 @@ public class IdempotencyRecord {
     @Column(name = "payment_key", nullable = false, length = 200)
     private String paymentKey;
 
-    @Column(name = "transaction_id", nullable = false)
+    @Column(name = "transaction_id")
     private Long transactionId;
 
     @Column(name = "response_body", columnDefinition = "TEXT")
@@ -54,6 +54,11 @@ public class IdempotencyRecord {
         r.transactionId = transactionId;
         r.createdAt = now;
         return r;
+    }
+
+    public IdempotencyRecord respondedWith(String responseBody) {
+        this.responseBody = responseBody;
+        return this;
     }
 
     public boolean sameRequest(String requestFingerprint) {

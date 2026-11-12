@@ -25,13 +25,12 @@ public class PaymentController {
     @CachedAuth
     @PostMapping
     public PaymentResponse create(@AuthenticatedMerchant String mId,
+                                  @RequestHeader(value = IdempotencyFilter.HEADER, required = false) String idempotencyKey,
+                                  @RequestAttribute(value = IdempotencyFilter.FINGERPRINT_ATTRIBUTE, required = false) String fingerprint,
                                   @Valid @RequestBody CreatePaymentRequest request) {
-        Payment payment = paymentService.create(
-                new CreatePaymentCommand(mId, request.orderId(), request.orderName(), request.amount(),
-                        request.partialCancelable() == null || request.partialCancelable())
-        );
-
-        return PaymentResponse.from(payment, List.of());
+        return paymentService.create(new CreatePaymentCommand(mId, request.orderId(), request.orderName(),
+                request.amount(), request.partialCancelable() == null || request.partialCancelable(),
+                idempotencyKey, fingerprint));
     }
 
     @PostMapping("/confirm")
