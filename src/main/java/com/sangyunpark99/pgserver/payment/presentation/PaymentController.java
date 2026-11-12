@@ -36,12 +36,11 @@ public class PaymentController {
 
     @PostMapping("/confirm")
     public PaymentResponse confirm(@AuthenticatedMerchant String mId,
+                                   @RequestHeader(value = IdempotencyFilter.HEADER, required = false) String idempotencyKey,
+                                   @RequestAttribute(value = IdempotencyFilter.FINGERPRINT_ATTRIBUTE, required = false) String fingerprint,
                                    @RequestBody ConfirmPaymentRequest request) {
-        Payment payment = paymentService.confirm(
-                new ConfirmPaymentCommand(mId, request.paymentKey(), request.orderId(), request.amount())
-        );
-
-        return PaymentResponse.from(payment, List.of());
+        return paymentService.confirm(new ConfirmPaymentCommand(
+                mId, request.paymentKey(), request.orderId(), request.amount(), idempotencyKey, fingerprint));
     }
 
     @CachedAuth
