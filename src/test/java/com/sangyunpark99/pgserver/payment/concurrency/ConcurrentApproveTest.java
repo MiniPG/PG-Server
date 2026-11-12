@@ -3,6 +3,7 @@ package com.sangyunpark99.pgserver.payment.concurrency;
 import com.sangyunpark99.pgserver.card.CardCompanyClient;
 import com.sangyunpark99.pgserver.payment.application.ConfirmPaymentCommand;
 import com.sangyunpark99.pgserver.payment.application.CreatePaymentCommand;
+import com.sangyunpark99.pgserver.payment.application.PaymentResponse;
 import com.sangyunpark99.pgserver.payment.application.PaymentService;
 import com.sangyunpark99.pgserver.payment.domain.Payment;
 import com.sangyunpark99.pgserver.payment.domain.PaymentTransaction;
@@ -63,7 +64,7 @@ class ConcurrentApproveTest {
     void approveOnlyOnce() throws Exception {
         String mId = "m_" + UUID.randomUUID().toString().substring(0, 8);
         String orderId = "order-" + UUID.randomUUID();
-        Payment payment = paymentService.create(new CreatePaymentCommand(mId, orderId, "티셔츠", 10_000, true));
+        PaymentResponse payment = paymentService.create(new CreatePaymentCommand(mId, orderId, "티셔츠", 10_000, true, null, null));
 
         List<String> results = Collections.synchronizedList(new ArrayList<>());
         ExecutorService executor = Executors.newFixedThreadPool(REQUESTS);
@@ -75,7 +76,7 @@ class ConcurrentApproveTest {
                 ready.countDown();
                 try {
                     start.await();
-                    paymentService.confirm(new ConfirmPaymentCommand(mId, payment.getPaymentKey(), orderId, 10_000, null, null));
+                    paymentService.confirm(new ConfirmPaymentCommand(mId, payment.paymentKey(), orderId, 10_000, null, null));
                     results.add("성공");
                 } catch (Exception e) {
                     results.add(e.getClass().getSimpleName() + ": " + e.getMessage());
@@ -89,7 +90,7 @@ class ConcurrentApproveTest {
         assertThat(executor.awaitTermination(30, TimeUnit.SECONDS)).isTrue();
 
         List<PaymentTransaction> approves = transactionRepository
-                .findByPaymentKeyAndTypeOrderByIdAsc(payment.getPaymentKey(), TransactionType.APPROVE);
+                .findByPaymentKeyAndTypeOrderByIdAsc(payment.paymentKey(), TransactionType.APPROVE);
         long done = approves.stream().filter(tx -> tx.getStatus() == TransactionStatus.DONE).count();
         int cardCalls = ((DelayedCardCompanyClient) cardCompanyClient).approveCalls();
 

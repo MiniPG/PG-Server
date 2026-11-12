@@ -5,6 +5,8 @@ public record CreatePaymentCommand(
         String orderId,
         String orderName,
         long amount,
-        boolean partialCancelable
+        boolean partialCancelable,
+        String idempotencyKey,
+        String requestFingerprint
 ) {
 }
