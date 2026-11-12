@@ -69,7 +69,7 @@ class ConcurrentPartialCancelTest {
         String mId = "m_" + UUID.randomUUID().toString().substring(0, 8);
         String orderId = "order-" + UUID.randomUUID();
         Payment created = paymentService.create(new CreatePaymentCommand(mId, orderId, "티셔츠", TOTAL, true));
-        paymentService.confirm(new ConfirmPaymentCommand(mId, created.getPaymentKey(), orderId, TOTAL));
+        paymentService.confirm(new ConfirmPaymentCommand(mId, created.getPaymentKey(), orderId, TOTAL, null, null));
         card().reset();
 
         List<String> results = Collections.synchronizedList(new ArrayList<>());
@@ -119,7 +119,7 @@ class ConcurrentPartialCancelTest {
         String mId = "m_" + UUID.randomUUID().toString().substring(0, 8);
         String orderId = "order-" + UUID.randomUUID();
         Payment created = paymentService.create(new CreatePaymentCommand(mId, orderId, "티셔츠", TOTAL, true));
-        paymentService.confirm(new ConfirmPaymentCommand(mId, created.getPaymentKey(), orderId, TOTAL));
+        paymentService.confirm(new ConfirmPaymentCommand(mId, created.getPaymentKey(), orderId, TOTAL, null, null));
         card().reset();
 
         List<String> results = Collections.synchronizedList(new ArrayList<>());

@@ -4,6 +4,8 @@ public record ConfirmPaymentCommand(
         String mId,
         String paymentKey,
         String orderId,
-        long amount
+        long amount,
+        String idempotencyKey,
+        String requestFingerprint
 ) {
 }

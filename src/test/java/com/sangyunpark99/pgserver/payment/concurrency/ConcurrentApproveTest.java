@@ -75,7 +75,7 @@ class ConcurrentApproveTest {
                 ready.countDown();
                 try {
                     start.await();
-                    paymentService.confirm(new ConfirmPaymentCommand(mId, payment.getPaymentKey(), orderId, 10_000));
+                    paymentService.confirm(new ConfirmPaymentCommand(mId, payment.getPaymentKey(), orderId, 10_000, null, null));
                     results.add("성공");
                 } catch (Exception e) {
                     results.add(e.getClass().getSimpleName() + ": " + e.getMessage());

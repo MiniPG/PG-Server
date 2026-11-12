@@ -67,7 +67,7 @@ public class PaymentService {
         return payment;
     }
 
-    public Payment confirm(ConfirmPaymentCommand command) {
+    public PaymentResponse confirm(ConfirmPaymentCommand command) {
         return cardCallBulkhead.execute(() -> doConfirm(command));
     }
 
@@ -84,8 +84,13 @@ public class PaymentService {
                 .orElseThrow(() -> new PgException(ErrorCode.NOT_FOUND_PAYMENT));
     }
 
-    private Payment doConfirm(ConfirmPaymentCommand command) {
-        ApprovalRequest request = transactionTemplate.execute(status -> startApproval(command));
+    private PaymentResponse doConfirm(ConfirmPaymentCommand command) {
+        ApprovalRequest request;
+        try {
+            request = transactionTemplate.execute(status -> startApproval(command));
+        } catch (PgException | DataIntegrityViolationException e) {
+            return replayIfDuplicated(command.mId(), command.idempotencyKey(), confirmFingerprint(command), e);
+        }
 
         CardApprovalResult result;
         try {
@@ -103,7 +108,7 @@ public class PaymentService {
         return transactionTemplate.execute(status -> finishApproval(command.mId(), request, result));
     }
 
-    private Payment reverseApproval(String mId, ApprovalRequest request, CardCompanyUnavailableException approvalFailure) {
+    private PaymentResponse reverseApproval(String mId, ApprovalRequest request, CardCompanyUnavailableException approvalFailure) {
         try {
             cardCompanyClient.reverse(request.transactionKey(), request.paymentKey(), request.amount());
         } catch (CardCompanyUnavailableException e) {
@@ -115,23 +120,23 @@ public class PaymentService {
             throw approvalFailure;
         }
 
-        Payment payment = transactionTemplate.execute(status -> abortReversedApproval(mId, request));
+        PaymentResponse response = transactionTemplate.execute(status -> abortReversedApproval(mId, request));
         metrics.approve(PaymentMetrics.REVERSED);
         log.atInfo().setMessage("결제 망취소")
                 .addKeyValue("paymentKey", request.paymentKey())
                 .addKeyValue("transactionKey", request.transactionKey())
                 .addKeyValue("result", PaymentMetrics.REVERSED)
                 .log();
-        return payment;
+        return response;
     }
 
-    private Payment abortReversedApproval(String mId, ApprovalRequest request) {
+    private PaymentResponse abortReversedApproval(String mId, ApprovalRequest request) {
         int finished = transactionRepository.finishIfRequested(request.transactionId(), TransactionStatus.FAILED, timeProvider.now());
         Payment payment = findOwned(mId, request.paymentKey());
         if (finished == 1) {
             payment.abortByReversal();
         }
-        return payment;
+        return confirmed(payment, request.idempotencyRecordId());
     }
 
     private ApprovalRequest startApproval(ConfirmPaymentCommand command) {
@@ -149,15 +154,17 @@ public class PaymentService {
         );
         transactionRepository.save(tx);
         payment.startApproving();
-        return new ApprovalRequest(payment, tx.getId(), tx.getTransactionKey());
+        Long recordId = saveRecord(command.mId(), command.idempotencyKey(), IdempotentOperation.CONFIRM,
+                confirmFingerprint(command), payment.getPaymentKey(), tx.getId());
+        return new ApprovalRequest(payment, tx.getId(), tx.getTransactionKey(), recordId);
     }
 
-    private Payment finishApproval(String mId, ApprovalRequest request, CardApprovalResult result) {
+    private PaymentResponse finishApproval(String mId, ApprovalRequest request, CardApprovalResult result) {
         LocalDateTime now = timeProvider.now();
         TransactionStatus next = result.approved() ? TransactionStatus.DONE : TransactionStatus.FAILED;
         int finished = transactionRepository.finishIfRequested(request.transactionId(), next, now);
         if (finished == 0) {
-            return findOwned(mId, request.paymentKey());
+            return confirmed(findOwned(mId, request.paymentKey()), request.idempotencyRecordId());
         }
 
             if (result.approved()) {
@@ -175,7 +182,7 @@ public class PaymentService {
                     .addKeyValue("transactionKey", request.transactionKey())
                     .addKeyValue("result", PaymentMetrics.APPROVED)
                     .log();
-            return payment;
+            return confirmed(payment, request.idempotencyRecordId());
         }
 
         Payment payment = findOwned(mId, request.paymentKey());
@@ -187,10 +194,16 @@ public class PaymentService {
                 .addKeyValue("result", PaymentMetrics.REJECTED)
                 .addKeyValue("failureCode", result.failureCode())
                 .log();
-        return payment;
+        return confirmed(payment, request.idempotencyRecordId());
     }
 
-    private record ApprovalRequest(Payment payment, Long transactionId, String transactionKey) {
+    private PaymentResponse confirmed(Payment payment, Long idempotencyRecordId) {
+        PaymentResponse response = PaymentResponse.from(payment, List.of());
+        saveResponse(idempotencyRecordId, response);
+        return response;
+    }
+
+    private record ApprovalRequest(Payment payment, Long transactionId, String transactionKey, Long idempotencyRecordId) {
         String paymentKey() {
             return payment.getPaymentKey();
         }
@@ -204,15 +217,8 @@ public class PaymentService {
         CancelRequest request;
         try {
             request = transactionTemplate.execute(status -> startCancel(command));
-        } catch (DataIntegrityViolationException e) {
-            IdempotencyRecord winner = findRecord(command);
-            if (winner == null) {
-                throw e;
-            }
-            if (!winner.sameRequest(fingerprintOf(command))) {
-                throw new PgException(ErrorCode.IDEMPOTENCY_KEY_REUSED);
-            }
-            return replay(command.mId(), winner);
+        } catch (PgException | DataIntegrityViolationException e) {
+            return replayIfDuplicated(command.mId(), command.idempotencyKey(), cancelFingerprint(command), e);
         }
 
         CardCancelResult result;
@@ -264,12 +270,8 @@ public class PaymentService {
                 cancelAmount, command.cancelReason(), timeProvider.now()
         );
         transactionRepository.save(tx);
-        Long recordId = null;
-        if (command.idempotencyKey() != null) {
-            recordId = idempotencyRecordRepository.save(IdempotencyRecord.of(command.mId(), command.idempotencyKey(),
-                    IdempotentOperation.CANCEL, fingerprintOf(command), payment.getPaymentKey(), tx.getId(),
-                    timeProvider.now())).getId();
-        }
+        Long recordId = saveRecord(command.mId(), command.idempotencyKey(), IdempotentOperation.CANCEL,
+                cancelFingerprint(command), payment.getPaymentKey(), tx.getId());
         return new CancelRequest(payment.getId(), payment.getPaymentKey(), tx.getId(), tx.getTransactionKey(),
                 payment.getCard().getApproveNo(), cancelAmount, recordId);
     }
@@ -284,9 +286,7 @@ public class PaymentService {
         transactionRepository.finishIfRequested(request.transactionId(), TransactionStatus.DONE, timeProvider.now());
         Payment payment = findOwned(mId, request.paymentKey());
         PaymentResponse response = responseOf(payment);
-        if (request.idempotencyRecordId() != null) {
-            idempotencyRecordRepository.saveResponse(request.idempotencyRecordId(), objectMapper.writeValueAsString(response));
-        }
+        saveResponse(request.idempotencyRecordId(), response);
         metrics.cancel(PaymentMetrics.CANCELED);
         log.atInfo().setMessage("결제 취소")
                 .addKeyValue("paymentKey", payment.getPaymentKey())
@@ -300,21 +300,54 @@ public class PaymentService {
     public PaymentResponse replay(String mId, IdempotencyRecord record) {
         PaymentTransaction tx = transactionRepository.findById(record.getTransactionId())
                 .orElseThrow(() -> new IllegalStateException("멱등 키에 연결된 거래가 없습니다. id=" + record.getTransactionId()));
-        return switch (tx.getStatus()) {
-            case DONE -> responseOf(findOwned(mId, record.getPaymentKey()));
-            case REQUESTED -> throw new PgException(ErrorCode.CANCEL_IN_PROGRESS);
-            case FAILED -> throw new PgException(ErrorCode.CANCEL_FAILED);
+        return switch (record.getOperation()) {
+            case CONFIRM -> switch (tx.getStatus()) {
+                case REQUESTED -> throw new PgException(ErrorCode.APPROVAL_IN_PROGRESS);
+                case DONE, FAILED -> PaymentResponse.from(findOwned(mId, record.getPaymentKey()), List.of());
+            };
+            case CANCEL -> switch (tx.getStatus()) {
+                case DONE -> responseOf(findOwned(mId, record.getPaymentKey()));
+                case REQUESTED -> throw new PgException(ErrorCode.CANCEL_IN_PROGRESS);
+                case FAILED -> throw new PgException(ErrorCode.CANCEL_FAILED);
+            };
         };
     }
 
-    private IdempotencyRecord findRecord(CancelPaymentCommand command) {
-        if (command.idempotencyKey() == null) {
-            return null;
+    private PaymentResponse replayIfDuplicated(String mId, String idempotencyKey, String fingerprint, RuntimeException cause) {
+        if (idempotencyKey == null) {
+            throw cause;
         }
-        return idempotencyRecordRepository.findByMerchantAndKey(command.mId(), command.idempotencyKey()).orElse(null);
+        IdempotencyRecord winner = idempotencyRecordRepository.findByMerchantAndKey(mId, idempotencyKey).orElse(null);
+        if (winner == null) {
+            throw cause;
+        }
+        if (!winner.sameRequest(fingerprint)) {
+            throw new PgException(ErrorCode.IDEMPOTENCY_KEY_REUSED);
+        }
+        return replay(mId, winner);
     }
 
-    private String fingerprintOf(CancelPaymentCommand command) {
+    private Long saveRecord(String mId, String idempotencyKey, IdempotentOperation operation,
+                            String fingerprint, String paymentKey, Long transactionId) {
+        if (idempotencyKey == null) {
+            return null;
+        }
+        return idempotencyRecordRepository.save(IdempotencyRecord.of(mId, idempotencyKey, operation,
+                fingerprint, paymentKey, transactionId, timeProvider.now())).getId();
+    }
+
+    private void saveResponse(Long idempotencyRecordId, PaymentResponse response) {
+        if (idempotencyRecordId != null) {
+            idempotencyRecordRepository.saveResponse(idempotencyRecordId, objectMapper.writeValueAsString(response));
+        }
+    }
+
+    private String confirmFingerprint(ConfirmPaymentCommand command) {
+        return Objects.requireNonNullElse(command.requestFingerprint(),
+                command.paymentKey() + "|" + command.orderId() + "|" + command.amount());
+    }
+
+    private String cancelFingerprint(CancelPaymentCommand command) {
         return Objects.requireNonNullElse(command.requestFingerprint(),
                 command.paymentKey() + "|" + command.cancelAmount());
     }
