@@ -4,6 +4,7 @@ import com.sangyunpark99.pgserver.card.CardCompanyClient;
 import com.sangyunpark99.pgserver.payment.application.CancelPaymentCommand;
 import com.sangyunpark99.pgserver.payment.application.ConfirmPaymentCommand;
 import com.sangyunpark99.pgserver.payment.application.CreatePaymentCommand;
+import com.sangyunpark99.pgserver.payment.application.PaymentResponse;
 import com.sangyunpark99.pgserver.payment.application.PaymentService;
 import com.sangyunpark99.pgserver.payment.domain.Payment;
 import com.sangyunpark99.pgserver.payment.domain.TransactionStatus;
@@ -68,8 +69,8 @@ class ConcurrentPartialCancelTest {
     void partialCancelConcurrently() throws Exception {
         String mId = "m_" + UUID.randomUUID().toString().substring(0, 8);
         String orderId = "order-" + UUID.randomUUID();
-        Payment created = paymentService.create(new CreatePaymentCommand(mId, orderId, "티셔츠", TOTAL, true));
-        paymentService.confirm(new ConfirmPaymentCommand(mId, created.getPaymentKey(), orderId, TOTAL, null, null));
+        PaymentResponse created = paymentService.create(new CreatePaymentCommand(mId, orderId, "티셔츠", TOTAL, true, null, null));
+        paymentService.confirm(new ConfirmPaymentCommand(mId, created.paymentKey(), orderId, TOTAL, null, null));
         card().reset();
 
         List<String> results = Collections.synchronizedList(new ArrayList<>());
@@ -82,7 +83,7 @@ class ConcurrentPartialCancelTest {
                 ready.countDown();
                 try {
                     start.await();
-                    paymentService.cancel(new CancelPaymentCommand(mId, created.getPaymentKey(), "부분 반품", CANCEL, null, null));
+                    paymentService.cancel(new CancelPaymentCommand(mId, created.paymentKey(), "부분 반품", CANCEL, null, null));
                     results.add("성공");
                 } catch (Exception e) {
                     results.add(e.getClass().getSimpleName() + ": " + e.getMessage());
@@ -95,9 +96,9 @@ class ConcurrentPartialCancelTest {
         executor.shutdown();
         assertThat(executor.awaitTermination(30, TimeUnit.SECONDS)).isTrue();
 
-        long balance = paymentRepository.findByPaymentKey(created.getPaymentKey()).orElseThrow().getBalanceAmount();
+        long balance = paymentRepository.findByPaymentKey(created.paymentKey()).orElseThrow().getBalanceAmount();
         long canceledDone = transactionRepository
-                .findByPaymentKeyAndTypeOrderByIdAsc(created.getPaymentKey(), TransactionType.CANCEL).stream()
+                .findByPaymentKeyAndTypeOrderByIdAsc(created.paymentKey(), TransactionType.CANCEL).stream()
                 .filter(tx -> tx.getStatus() == TransactionStatus.DONE)
                 .mapToLong(tx -> tx.getAmount())
                 .sum();
@@ -118,8 +119,8 @@ class ConcurrentPartialCancelTest {
     void fullCancelConcurrently() throws Exception {
         String mId = "m_" + UUID.randomUUID().toString().substring(0, 8);
         String orderId = "order-" + UUID.randomUUID();
-        Payment created = paymentService.create(new CreatePaymentCommand(mId, orderId, "티셔츠", TOTAL, true));
-        paymentService.confirm(new ConfirmPaymentCommand(mId, created.getPaymentKey(), orderId, TOTAL, null, null));
+        PaymentResponse created = paymentService.create(new CreatePaymentCommand(mId, orderId, "티셔츠", TOTAL, true, null, null));
+        paymentService.confirm(new ConfirmPaymentCommand(mId, created.paymentKey(), orderId, TOTAL, null, null));
         card().reset();
 
         List<String> results = Collections.synchronizedList(new ArrayList<>());
@@ -132,7 +133,7 @@ class ConcurrentPartialCancelTest {
                 ready.countDown();
                 try {
                     start.await();
-                    paymentService.cancel(new CancelPaymentCommand(mId, created.getPaymentKey(), "전액 반품", null, null, null));
+                    paymentService.cancel(new CancelPaymentCommand(mId, created.paymentKey(), "전액 반품", null, null, null));
                     results.add("성공");
                 } catch (Exception e) {
                     results.add(e.getClass().getSimpleName() + ": " + e.getMessage());
