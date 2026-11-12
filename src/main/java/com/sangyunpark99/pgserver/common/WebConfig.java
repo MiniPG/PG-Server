@@ -2,6 +2,7 @@ package com.sangyunpark99.pgserver.common;
 
 import com.sangyunpark99.pgserver.merchant.presentation.AuthenticatedMerchantArgumentResolver;
 import com.sangyunpark99.pgserver.merchant.presentation.MerchantAuthInterceptor;
+import com.sangyunpark99.pgserver.payment.presentation.IdempotencyInterceptor;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.method.support.HandlerMethodArgumentResolver;
@@ -14,10 +15,12 @@ import java.util.List;
 @RequiredArgsConstructor
 public class WebConfig implements WebMvcConfigurer {
     private final MerchantAuthInterceptor merchantAuthInterceptor;
+    private final IdempotencyInterceptor idempotencyInterceptor;
 
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
         registry.addInterceptor(merchantAuthInterceptor).addPathPatterns("/v1/**");
+        registry.addInterceptor(idempotencyInterceptor).addPathPatterns("/v1/**");
     }
 
     @Override

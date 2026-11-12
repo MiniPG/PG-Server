@@ -4,6 +4,7 @@ import com.jayway.jsonpath.JsonPath;
 import com.sangyunpark99.pgserver.card.CardApprovalResult;
 import com.sangyunpark99.pgserver.card.CardCancelResult;
 import com.sangyunpark99.pgserver.card.CardCompanyClient;
+import com.sangyunpark99.pgserver.payment.application.PaymentService;
 import com.sangyunpark99.pgserver.payment.domain.TransactionType;
 import com.sangyunpark99.pgserver.payment.infrastructure.PaymentRepository;
 import com.sangyunpark99.pgserver.payment.infrastructure.PaymentTransactionRepository;
@@ -17,6 +18,7 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
@@ -29,10 +31,14 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.willAnswer;
+import static org.mockito.Mockito.clearInvocations;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -46,6 +52,7 @@ class CancelIdempotencyTest {
     @Autowired PaymentRepository paymentRepository;
     @Autowired PaymentTransactionRepository transactionRepository;
     @MockitoBean CardCompanyClient cardCompanyClient;
+    @MockitoSpyBean PaymentService paymentService;
 
     @BeforeEach
     void setUp() {
@@ -141,6 +148,36 @@ class CancelIdempotencyTest {
         assertThat(reused.getResponse().getStatus()).isEqualTo(422);
         assertThat(reused.getResponse().getContentAsString()).contains("IDEMPOTENCY_KEY_REUSED");
         assertThat(paymentRepository.findByPaymentKey(paymentKey).orElseThrow().getBalanceAmount()).isEqualTo(7_000);
+    }
+
+    @Test
+    @DisplayName("같은 키로 다시 오면, 그 사이 다른 취소가 있었어도 첫 응답과 같은 본문을 돌려준다")
+    void replaysFirstResponseBody() throws Exception {
+        String paymentKey = approvedPayment();
+        String key = UUID.randomUUID().toString();
+
+        String first = cancel(paymentKey, key, 3_000).getResponse().getContentAsString();
+        cancel(paymentKey, UUID.randomUUID().toString(), 2_000);
+        MvcResult retry = cancel(paymentKey, key, 3_000);
+
+        assertThat(retry.getResponse().getStatus()).isEqualTo(200);
+        assertThat(retry.getResponse().getContentAsString()).isEqualTo(first);
+        assertThat(JsonPath.<Integer>read(retry.getResponse().getContentAsString(), "$.balanceAmount")).isEqualTo(7_000);
+    }
+
+    @Test
+    @DisplayName("응답이 저장된 중복 요청은 서비스를 거치지 않고 저장된 응답으로 끝난다")
+    void duplicateSkipsService() throws Exception {
+        String paymentKey = approvedPayment();
+        String key = UUID.randomUUID().toString();
+        cancel(paymentKey, key, 3_000);
+        clearInvocations(paymentService, cardCompanyClient);
+
+        MvcResult retry = cancel(paymentKey, key, 3_000);
+
+        assertThat(retry.getResponse().getStatus()).isEqualTo(200);
+        verify(paymentService, never()).cancel(any());
+        verify(cardCompanyClient, never()).cancel(anyString(), anyString(), anyLong());
     }
 
     private String approvedPayment() throws Exception {

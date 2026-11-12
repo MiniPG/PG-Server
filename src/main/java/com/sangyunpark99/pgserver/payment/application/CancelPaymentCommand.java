@@ -5,5 +5,6 @@ public record CancelPaymentCommand(
         String paymentKey,
         String cancelReason,
         Long cancelAmount,
-        String idempotencyKey) {
+        String idempotencyKey,
+        String requestFingerprint) {
 }
